@@ -116,6 +116,20 @@ cp env.example .env
 # Edit .env and add your API key (SILICONFLOW_API_KEY or ARK_API_KEY)
 ```
 
+> **Troubleshooting (slow PyPI)**: If `uv sync` retries and then times out while
+> downloading (typically on `files.pythonhosted.org`), route it through your
+> local proxy and retry, e.g.:
+>
+> ```bash
+> export HTTPS_PROXY=http://127.0.0.1:7890   # ClashX default port
+> uv sync --locked --extra ch1
+> ```
+>
+> Do not switch to a mirror index while using `--locked`: the lockfile is
+> pinned to PyPI, so `--locked` will fail if the registry differs. Without a
+> proxy, the pip fallback can use a mirror instead:
+> `python -m pip install -e ".[ch1]" -i https://pypi.tuna.tsinghua.edu.cn/simple`.
+
 #### 2. Configure Provider
 
 ```bash
@@ -580,6 +594,18 @@ cd chapter1/context
 cp env.example .env
 # 编辑 .env 并填入你的 API Key（SILICONFLOW_API_KEY 或 ARK_API_KEY）
 ```
+
+> **网络排障**：若 `uv sync` 在下载阶段反复重试后超时（通常是
+> `files.pythonhosted.org`），先走本地代理再重试，例如：
+>
+> ```bash
+> export HTTPS_PROXY=http://127.0.0.1:7890   # ClashX 默认端口
+> uv sync --locked --extra ch1
+> ```
+>
+> 注意：使用 `--locked` 时不要换成镜像源，锁文件固定指向 PyPI，换源会导致
+> `--locked` 校验失败。没有代理时，可用 pip 兜底并指定镜像：
+> `python -m pip install -e ".[ch1]" -i https://pypi.tuna.tsinghua.edu.cn/simple`。
 
 #### 2. 配置提供商
 
