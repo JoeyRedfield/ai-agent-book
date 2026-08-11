@@ -20,7 +20,7 @@ Gerçekten kişiselleştirilmiş, sürekli bir hizmet sunan bir AI Agent inşa e
 
 Bu süreci somut bir örnekle anlayalım. Bir kullanıcı ve Agent'ın şu konuşmayı yaptığını varsayalım:
 
-```
+```text
 Kullanıcı: Gelecek Cuma Tokyo'ya bir uçuş ayırtmama yardım et. Pencere kenarı
       koltukları tercih ederim ve vejetaryenim, bu yüzden özel bir yemeğe ihtiyacım olacak.
 Agent: Gelecek Cuma için Tokyo'ya uçuşları arayacağım...
@@ -32,12 +32,27 @@ Kullanıcı: Evet, ve United MileagePlus numaramı kullan: 12345678.
 
 Bu konuşma bittikten sonra, Agent çerçevesi diyaloğu analiz etmek ve uzun vadede hatırlanmaya değer bilgiyi çıkarmak için özel bir LLM çağırır:
 
-```
+```text
 Çıkarılan bellekler:
 - Kullanıcı pencere kenarı koltukları tercih ediyor (tercih)
 - Kullanıcı vejetaryen, uçuşlarda özel yemeğe ihtiyaç duyuyor (diyet kısıtlaması)
 - Kullanıcının United MileagePlus numarası: 12345678 (sadakat programı)
 - Kullanıcının Tokyo'ya seyahat planları var (son etkinlik)
+```
+
+**Bellek yaşam döngüsü:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 Bu çıkarım sürecinin birkaç kilit özelliğine dikkat edin:
@@ -127,50 +142,74 @@ Bellek güncellemelerini iki aşamaya ayırır[^uac]: **bellek aşaması** (her 
 
 Aşağıda basitleştirilmiş bir örnek var. Yapılandırma aşaması, kullanıcının pasaportunu ve gezilerini tipli durum olarak depolar:
 
-```python
-from datetime import date
+**Yalnızca eklemeli günlük ve checkpoint:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... kalan geziler
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**Tipli kullanıcı durumu:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 Tipli durumla, daha önce LLM'in "metni okuyup zihinsel aritmetik yapmasını" gerektiren üç görev artık deterministik kod haline gelir:
 
 Birincisi, **toplu istatistik (aggregation)**. "Geçen yıl kaç kez yurt dışına çıktım?"—metin belleğiyle tüm gezileri hatırlayıp birer birer saymanız gerekir ve kayıt sayısı arttıkça hata olasılığı yükselir; User as Code ile bu tek bir ifadedir ve neredeyse %100 doğruluk elde eder[^uac]:
 
+**Deterministik toplama:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 İkincisi, **çelişki tespiti (conflict detection)**. "Mevcut ilaçları" ve "alerji geçmişini" yan yana yerleştirerek, tek bir fonksiyon bunları ilaç sınıfına göre çapraz referanslayabilir, metin formunda otomatik olarak ilişkilendirilmesi neredeyse imkânsız olacak, farklı konuşmalara dağılmış çelişkileri ortaya çıkarabilir:
 
+**Çakışma tespiti:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"İlaç çakışması: {med.name}, {med.drug_class} sınıfına ait, "
-                       f"ama hasta {allergy.allergen}'e ciddi alerjisi var")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 Üçüncüsü, **kısıt uygulama (constraint enforcement)**. Agent, bu tür kontrol fonksiyonlarını kalıcı hale getirebilir ve durum her güncellendiğinde bunları otomatik olarak tetikleyebilir—kullanıcının konuşmasına veya Agent'ın herhangi bir şey getirmesine gerek kalmadan. Örneğin, bir pasaport geçerlilik kısıtı: uluslararası bir gezinin kalkış tarihi pasaportun süresinin dolmasından 180 günden az önceyse uyar.
 
+**Kısıtların uygulanması:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"Pasaportun süresi {passport.expiry_date} tarihinde doluyor, "
-                       f"{trip.destination} gezisine yalnızca {days} gün kaldı. Lütfen en kısa sürede yenileyin.")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: Kullanıcı belleğini çalıştırılabilir bir kod projesi olarak inşa etmenin eksiksiz tasarımı ve değerlendirmesi şurada bulunabilir: Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -297,6 +336,21 @@ Kalıp her iki örnekte de aynıdır: **İlgili parçaları getir → Context'e 
 
 Retriever'ın kalitesi RAG'ın etkinliğini doğrudan belirler—ilgili parçaları getiremezse, en güçlü LLM bile üzerinde çalışacak bir şeye sahip olmaz. Bu bölüm, dokümanları bilgi tabanına sokmanın ilk adımıyla—chunking (parçalama)—başlar, ardından retriever'ın iki ana teknik yoluna, dense embedding'lere (semantik anlama) ve sparse embedding'lere (anahtar kelime eşleştirme) ve bunların nasıl birleştirileceğine döner.
 
+**Hibrit RAG hattı:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![Şekil 3-5: RAG Sorgu Akışı: Retrieval, Augmentation ve Generation](images/fig3-5.svg)
 
@@ -515,7 +569,7 @@ Bu yüzden, pratikte önerilen strateji **katmanlı tamamlayıcılıktır**: tem
 
 RAPTOR ve GraphRAG, akademinin bilgi organizasyonu keşifleridir; ByteDance'in Volcano Engine'inin açık kaynak kıldığı [OpenViking](https://github.com/volcengine/OpenViking), üçüncü bir felsefe önerir: **dosya sistemi paradigması**. Context'i ne düz vektör parçaları ne de graf düğümleri olarak ele alır. Bunun yerine, tüm context'i—bellekleri, kaynakları, becerileri—her biri benzersiz bir URI'ye sahip sanal bir dosya sistemi içindeki dizinlere ve dosyalara eşler:
 
-```
+```text
 viking://
 ├── resources/          # Dışsal bilgi: dokümanlar, kod tabanları, web sayfaları
 ├── user/memories/      # Kullanıcı bellekleri: tercihler, alışkanlıklar

@@ -32,7 +32,7 @@ Trước khi đi sâu vào phương pháp luận, hãy xây dựng trực giác 
 
 **Trajectory của Agent**:
 
-```
+```text
 Người dùng: Tôi muốn trả lại tai nghe đã mua cách đây 3 ngày, mã đơn hàng 12345. (Hôm nay là 2026-04-10)
 
 Đại lý (suy nghĩ): Nếu người dùng muốn hoàn tiền thì trước tiên cần kiểm tra thông tin đơn hàng.
@@ -108,6 +108,17 @@ Môi trường đánh giá bao gồm năm yếu tố - các chương tiếp theo
 **Tiêu chí chấm điểm (Rubric, Tiêu chí chấm điểm)** Định lượng hiệu suất của Agent, có thể là nhị phân (đạt/không đạt), liên tục (0 đến 100 điểm) hoặc đa chiều (độ chính xác, hiệu quả, an toàn được tính điểm riêng).
 
 **Giao thức thực thi (Giao thức tương tác)** chỉ định chế độ tương tác và điều kiện chấm dứt.
+
+**Vòng lặp đánh giá có thể lặp lại:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![Hình 6-2 Môi trường gọi công cụ và đánh giá tương tác giữa người và máy tính ](images/fig6-2.svg)
 
@@ -367,6 +378,17 @@ thất bại: "Thông tin bịa đặt không tồn tại trong cuộc trò chuy
 
 **Rubric Tốt so với Rubric Xấu**: Mỗi hộp xếp hạng ở trên đưa ra một hành vi cụ thể có thể kiểm chứng ("Tiến sĩ Chen đã trả lời chính xác"), thay vì "thể hiện sự hiểu biết sâu sắc về trí nhớ" và các mô tả khác không thể đánh giá khách quan. Mục từ chối làm rõ điểm mấu chốt: ngay cả khi tất cả các chiều không gian khác đều là điểm đầy đủ, một khi ảo giác xảy ra, nó sẽ bị tính trực tiếp bằng 0.
 
+**Veto xác định trước khi chấm rubric:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 Đưa Rubric cùng câu trả lời thực tế của Agent cho mô hình đánh giá để nhận điểm và lý do theo từng tiêu chí. Khi tổng hợp hàng chục ca rồi xem lại các trajectory có điểm thấp, ta có thể biến một nhận xét mơ hồ như “tỷ lệ thành công giảm” thành chẩn đoán cụ thể: không truy xuất được dữ kiện, nối sai quan hệ giữa các nhân vật, hay tự thêm thông tin không có căn cứ. Rubric vì thế không chỉ cho biết hệ thống đạt bao nhiêu điểm, mà còn chỉ ra nên sửa ở đâu.
 
 > **Thử nghiệm 6-3 ★★: Xây dựng hệ thống đánh giá bộ nhớ người dùng dựa trên Rubric**
@@ -609,6 +631,18 @@ Một nguyên tắc thực tế được rút ra từ điều này: **Khi chênh
 Có một cạm bẫy khác dễ bị bỏ qua: **so sánh nhiều giả thuyết**. Nếu kiểm tra sáu giả thuyết độc lập với ngưỡng tin cậy 95%, xác suất xuất hiện ít nhất một kết quả dương tính giả là 1 − 0,95^6 ≈ 26%. Càng thử nhiều thay đổi, càng dễ có một thay đổi “trông như hiệu quả” chỉ do ngẫu nhiên. Có hai cách xử lý: siết ngưỡng ý nghĩa theo số phép thử, chẳng hạn hiệu chỉnh Bonferroni, hoặc chạy xác nhận độc lập và chỉ chấp nhận kết luận có thể lặp lại. Chuỗi AndroidWorld ở phần sau giảm rủi ro này bằng cách chỉ đổi một biến mỗi vòng; nếu sàng lọc nhiều hướng song song, vẫn phải hiệu chỉnh hoặc xác nhận lại độc lập.
 
 Các quyết định dựa trên đánh giá dựa trên dữ liệu chất lượng cao thu được từ việc ghi lại có hệ thống các hoạt động Agent—đây chính là giải pháp mà observability có thể giải quyết được.
+
+**So sánh theo cặp:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Observability của Agent
 

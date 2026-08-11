@@ -333,7 +333,7 @@ The loop has one main branch: **if the model returns `tool_calls`, execute the t
 The `messages` list changes across rounds as follows:
 
 **Initial state (before the first call):**
-```
+```text
 messages = [
   { role: "system",  content: "You are a helpful assistant..." },     # Written by developer
   { role: "user",    content: "What's the current time and weather in Vancouver?" },  # User input
@@ -341,7 +341,7 @@ messages = [
 ```
 
 **After the first call (model returns tool calls):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -352,7 +352,7 @@ messages = [
 ```
 
 **After the second call (model returns final reply, loop ends):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -374,6 +374,25 @@ The example above shows the complete composition of context each time the Agent 
 The upper part (System Prompt + Tool Definitions) remains unchanged throughout the conversation, while the lower part (conversation history, i.e., the **trajectory** defined in Chapter 1) grows with each interaction. This is how the five context components from Chapter 1 appear at the API level: the system prompt and tool definitions form a static prefix, while user messages, model replies, and tool execution results form a dynamically growing message history. This "static prefix + trajectory" structure is the foundation for later discussions of KV Cache optimization, context compression, and related techniques: the prefix should remain stable, while later trajectory segments can be summarized or replaced when the trade-off is worthwhile.
 
 The rest of this chapter examines each layer of this structure: how to use a stable static prefix to accelerate inference (KV Cache), how to design an effective System Prompt (prompt engineering), how to prevent external content from hijacking the context (prompt injection defense), how to load specialized knowledge on demand (Agent Skills), how to inject dynamic state at the end of the conversation (Agent Status Bar), and how to compress conversation history when it grows too large (compression strategies).
+
+**Context construction before each request:**
+
+```python
+stable_prefix = system_message
+stable_tools = core_tool_schemas
+trajectory = load_message_history(session)
+status_message = make_status_message(derive_current_state(trajectory))
+
+if estimated_tokens(stable_prefix, trajectory, status_message) > budget:
+    trajectory = compress_old_evidence(
+        trajectory,
+        preserve = [decisions, constraints, failures, citations]
+    )
+
+request.messages = [stable_prefix] + trajectory + [status_message]
+request.tools = stable_tools
+response = call_model(request)
+```
 
 > **Experiment 2-1 ★: Local LLM Service Deployment and Tool Calling**
 >
@@ -596,7 +615,7 @@ Methods that reduce cognitive load for humans are equally effective for large la
 
 In contrast, a process-driven prompt functions like an effective training manual, providing a clear Standard Operating Procedure (SOP):
 
-```
+```text
 File Processing Standard Operating Procedure:
 
 Step 1: Validation
@@ -730,39 +749,48 @@ The core idea of Agent Skills is to modularize the Agent's capabilities into ind
 
 [^ch2-3]: Anthropic, "Equipping Agents for the Real World with Agent Skills", 2025.
 
-**Layer 1 (Metadata)**: Each Skill must include a `SKILL.md` file that starts with YAML frontmatter (a metadata block at the top of the file delimited by `---`, similar to a book's copyright page), containing `name` and `description` fields. The Agent framework scans all installed Skills at startup and injects their `name` and `description` into the dialogue context. This usually costs only a few hundred tokens, and the trade-offs around injection location are discussed in the next subsection. The goal is to let the Agent discover which specialized capabilities are available without loading all Skill content into context.
+**Layer 1 (Metadata)**: Each Skill should provide a `SKILL.md` file that starts with YAML frontmatter (a metadata block at the top of the file delimited by `---`, similar to a book's copyright page), containing `name` and `description` fields. The catalog should be visible to the Agent before the main body is loaded, so it can decide whether a capability is relevant without paying the full context cost for every Skill. Runtimes may place the catalog in different context layers; its shared purpose is discoverability, not carrying the complete domain workflow.
 
-Routing depends heavily on the metadata's `description` field. It should be concise enough to keep the always-loaded token count low, but written as a routing rule rather than a feature summary. The clearest pattern is "Use when / Do not use when," supported by **negative examples** that identify situations in which the Skill should not be triggered. Negative examples are not optional; they are essential to accurate Skill routing. Broad descriptions such as "help with backend" activate on unrelated tasks, while explicit exclusions make routing substantially more precise. For routing purposes, "when to use me" matters far more than "what I can do."
+The metadata's `description` field is important for routing. Keep it short enough to limit the always-present token count, but write it as a routing condition rather than a feature summary. It can state clear "Use when" and "Do not use when" boundaries and include representative **negative examples** to reduce false triggers from broad matches. This is writing advice for routing prompts, not an additional required field. A description such as "help with backend" can activate on almost any backend task; an effective description says when the Skill should be used, not merely what it can do.
 
-**Layer 2 (Core Workflow)**: When the Agent determines that a specific Skill is needed for a task, it loads the complete `SKILL.md` via a dedicated Skill tool, and the content appears in the conversation history as a tool result. Using the PPTX Skill[^ch2-4] as an example, it contains the core workflow for handling PowerPoint files: how to extract text via markitdown (Microsoft's open-source document-to-Markdown tool), how to unzip the PPTX file to access the raw XML structure, and the path conventions for key files.
+**Layer 2 (Core Workflow)**: When the Agent determines that a specific Skill is needed, the runtime loads the complete `SKILL.md` only then. Claude Code adds the Skill instructions as a user message at the invocation point; other runtimes may read a file or activate a dedicated tool and return the content as a tool result. Using the PPTX Skill[^ch2-4] as an example, it contains the core workflow for handling PowerPoint files: how to extract text via markitdown (Microsoft's open-source document-to-Markdown tool), how to unzip the PPTX file to access the raw XML structure, and the path conventions for key files.
 
 [^ch2-4]: Anthropic, "PPTX Skill", 2025. https://github.com/anthropics/skills/
 
+[^ch2-codex-skills]: OpenAI, "Build skills," Codex documentation. https://developers.openai.com/codex/skills/
+
 **Layer 3 (Details)**: File references allow deeper navigation into more detailed sub-documents. The main file references `html2pptx.md` (detailed workflow for creating PowerPoint from HTML templates), `reference.md` (format technical details), and others. The Agent selectively reads relevant sub-documents based on specific needs.
 
-Skills not only contain instructional documentation but can also bundle executable code tools and template files—turning them from pure knowledge transfer into operational capabilities.
+### How to Write a Usable Skill
+
+The runtime structure solves “when to load” and “how much to load”; the content still needs to turn experience into instructions a model can execute. A useful Skill should tell a new team member what task it applies to, what order to follow, when to stop and ask for confirmation, and what counts as complete.
+
+Based on the writing guidance in Baoyu's *A Visual Guide to Skills*[^ch2-baoyu-remove-ai-writing-flavor], start with four parts:
+
+- **Role and reader**: who the Skill serves, what task it covers, and what quality the output should meet;
+- **Core principles**: three to five important judgments, with positive and negative examples for key principles;
+- **Prohibitions**: common errors, out-of-scope actions, and confusing wording, including legitimate exceptions;
+- **References**: glossaries, templates, examples, and more detailed subdocuments. Prefer rules written as “scope + action + exception + verification” over an ever-growing list of forbidden words.
+
+A writing Skill can start from three to five pieces of your own work. Have the Agent infer word choice, sentence patterns, paragraph structure, and tone; generate a short first draft; then apply it to a real task and revise it sentence by sentence. The differences between the original and the revision are more informative than saying “make it more natural”: they show which words were removed, which long sentences were split, and where facts were added. Fold recurring changes back into the Skill, keeping positive examples, negative examples, and scope for each rule.
+
+Skills can also bundle executable code tools and template files. For example, a presentation Skill can include slide templates and scripts for parsing presentations.
 
 The value of Skills lies not only in context management but also in providing a sustainable path for accumulating domain knowledge. Each Skill is a self-contained knowledge module that can be independently developed, tested, version-controlled, and shared. This modularity transforms Agent capability expansion from centralized system prompt editing into a distributed Skill ecosystem, similar in spirit to package managers such as Python's pip or Node.js's npm. Each Skill encapsulates best practices for a specific domain. Anthropic's official Skills repository already covers document processing (PPTX, PDF, DOCX), data analysis, code generation, and other domains, allowing developers to use, customize, or create entirely new Skills.
 
-This reveals an important principle for Agent developers: **when choosing an Agent interaction mode, align with the interaction patterns the model and API are designed to support**. When building Agents with Claude, fully leverage Skills and structured system prompts; when using other models, follow the conventions optimized by that model vendor. The Agent usage patterns promoted by foundation model companies often reflect the modes those models are trained and evaluated to support.
+This reveals an important principle for Agent developers: **when choosing an Agent interaction mode, align with the model vendor's training methodology**. The Agent usage patterns promoted by foundation-model companies often reflect modes their models were specifically trained to support.
 
-### Skills Implementation Methods and Trade-offs
+[^ch2-baoyu-remove-ai-writing-flavor]: Baoyu, “Stop Using Prompts to Remove the AI Flavor; the Direction Is Wrong,” February 14, 2026. https://baoyu.io/blog/2026-02-14/remove-ai-writing-flavor
 
-After defining Skills, the next question is a concrete engineering problem: where in the context should Skill content be placed? This design decision directly affects KV Cache efficiency and the model's ability to follow the Skill's instructions. In principle, there are two straightforward approaches, but both have significant costs. Production systems such as Claude Code use a third approach that avoids the main drawbacks of both.
+### Skills in Context
 
-**Approach One: Inject into System Prompt (system message)**. Append Skill content directly to the system prompt. The model's instruction-following ability is strongest for content in the system position (because training heavily uses instructions in this position), so Skill execution is most effective. The problem: each time a new Skill is loaded, the system message content changes, invalidating the KV Cache prefix. If the Agent frequently switches Skills (e.g., a task requires first using a search Skill, then a document Skill), the cache is repeatedly invalidated, significantly increasing latency and cost.
+When assessing Skill context cost, separate the metadata catalog from the full Skill instructions:
 
-**Approach Two: Read as a regular file, with content appearing in the middle of the context**. The Agent reads the Skill file via a generic file-reading tool, and the file content appears as a tool result in the conversation history—i.e., the middle of the context. This approach does not affect the KV Cache at all (the system prompt remains unchanged), but it places higher demands on the model's **instruction-following** ability: the model needs to accurately identify and follow the instructions within the Skill in the middle of a long context, rather than treating it as ordinary tool output to reference. In practice, different models vary significantly in their support for this mode—Claude performs most reliably because its training heavily uses instruction-following data in the middle position; other models often degrade when following instructions injected in the middle of the context.
+- **Standard-level principle**: the mechanism defines the loading sequence, not message roles. The catalog must be discoverable before the body, and the body loads on demand after a Skill is selected. Message roles, wrappers, and whether the catalog is rebuilt each turn are Harness choices.
+- **Claude Code conceptually**: it exposes a small catalog as runtime context and appends the full instructions at the point where the Skill is invoked. “System prompt” can describe the logical stable instruction layer, but it should not be read as a claim that every client uses an API `system` role.
+- **Codex conceptually**: during turn-context construction it renders the Skills catalog in developer context; an explicitly selected Skill is injected as user context marked with `<skill>`. Skills from other sources may be read on demand through tools.[^ch2-codex-skills]
 
-**Approach Three (Production Implementation): Metadata provided as dynamic context, full content loaded on demand via a dedicated tool**. Claude Code's core approach is to separate Skill "routing" from "execution": the model first receives the metadata for the available Skills and uses it to determine whether the current task requires a particular Skill; only after a Skill is selected does it load the complete `SKILL.md`. This design balances context overhead, Prompt Cache reuse, and instruction-following ability.
-
-- **Metadata list**—the `name` + `description` of all installed Skills (usually only a few hundred tokens)—is made available to the model in advance, allowing it to determine which Skills are relevant to the current task. Importantly, **the message role used to inject this metadata into the context is an implementation detail of the Claude Code Agent Harness, not a fixed requirement of the Agent Skills mechanism itself**. In some historical versions of Claude Code, this type of dynamic context appeared as user-role content wrapped in `<system-reminder>`; newer implementation paths that support mid-conversation system messages can instead use an appended system-role context block. Regardless of the representation, the common goal is to make the model aware of the currently available Skills without repeatedly rewriting the stable context prefix.
-
-- **Full content**—once the model determines from the metadata that a Skill is suitable for the current task, it reads the corresponding `SKILL.md` on demand through the Skill tool, and the content then enters the current execution context. This avoids loading the complete instructions for every Skill at the beginning of the session, reducing the amount of irrelevant context.
-
-It is therefore important to distinguish two levels: **"Skill metadata must be visible to the model in advance" is a relatively stable mechanism, while "user role, system role, or a wrapper such as `<system-reminder>`" is a version-specific implementation choice.** `<system-reminder>` is not a protocol format exclusive to Agent Skills; it is one representation used by the Claude Code Agent Harness to inject dynamic system context.
-
-Note that **dynamically adding system context during a conversation is not unique to Skills**. In addition to metadata about available Skills, an Agent may need to keep the model informed of the current task state, runtime environment, or other dynamic information. The next section on the **Agent Status Bar** will explore this mechanism further, and the Skill metadata list can be viewed as one concrete example.
+Harnesses evolve quickly, so their concrete representations may change. The stable design principle is **a small catalog kept discoverable and the full body loaded on demand**. This is what lets Skills combine dynamic loading with controlled context cost. The following two figures show the design from two perspectives: the position of Skills in the trajectory and the evolution of the KV Cache.
 
 The following two figures show the effect of this design from two perspectives: the position of Skills in the trajectory and the evolution of the KV Cache.
 
@@ -770,7 +798,7 @@ The following two figures show the effect of this design from two perspectives: 
 
 ![Figure 2-13: Evolution of KV Cache as the Agent Trajectory Grows](images/fig2-13.svg)
 
-A common misconception needs clarification: "KV Cache-friendly" does not mean "zero cost." The first insertion of those few hundred to few thousand tokens still incurs a write cost (as mentioned earlier, Prompt Cache writes may even be billed at a premium). The precise meaning is **write once, benefit repeatedly**: to make the model aware of a Skill's existence or a piece of document content, that information must enter the cache at least once. Claude Code pays this cost only once, with no repetition for the rest of the session. Compare this with placing the same information into the system prompt: every update invalidates the downstream trajectory and forces cache creation again, often for tens or hundreds of thousands of tokens. That is the truly cache-unfriendly case.
+A common misconception needs clarification: “KV Cache-friendly” does not mean “zero cost.” The catalog must be processed the first time it enters a request, and loading a Skill body adds computation when it is first needed; later requests can reuse the cache while the established prefix remains stable. Harnesses differ in how they rebuild the catalog, but the shared benefit is that they need not preload every Skill body or rewrite established context whenever a new Skill is invoked.
 
 ### Relationship Between Skills and Tools
 
@@ -795,7 +823,7 @@ From a context-management perspective, the Skills mechanism is highly KV Cache-f
 
 ![Figure 2-14: Agent Status Bar Architecture](images/fig2-14.svg)
 
-The Skills section introduced the "user-role meta message at the end of the context" as a general channel for injecting meta-information. The Skill metadata list is one use of that channel. This section develops the mechanism more systematically: the Agent framework can use it to synchronize dynamic runtime state with the model. This mechanism is called the **Agent Status Bar**.
+The previous section focused on which capabilities Skills make available on demand. This section addresses a separate problem: how the Agent can keep the model aware of task progress, environment changes, and tool-call counts. The Agent framework packages this dynamic information as structured state and injects it into the context; this mechanism is called the **Agent Status Bar**.
 
 The prompt engineering discussed earlier solved the problem of "what static instructions to give the model." However, during actual execution, the Agent also needs to track its own state and task progress dynamically—this is where the Agent Status Bar comes in.
 
@@ -880,7 +908,7 @@ An important implementation detail is that the Agent Status Bar is inserted at t
 
 Below is the actual message list constructed by the Agent framework during the Nth API call:
 
-```
+```text
 messages: [
   { role: "system",    content: "You are a customer service assistant..." }  ← Fixed (KV Cache cached)
   { role: "user",      content: "Help me cancel my Xfinity plan" }  ← Original user request
@@ -907,11 +935,13 @@ This design applies the core principle from the KV Cache section to the status b
 
 "Appending does not break the cache" only holds for a single injection. Status naturally changes over time: TODO items are completed, tool counts increase, and previous status messages become outdated. There are two ways to update the status bar, each with different cache costs:
 
-**Implementation 1: Replace each round.** Before each API call, remove the previous round's status message from the message list and append the latest status at the end. This keeps only one current status in the context. The cost is that removing the old status invalidates all cached content after its position, which is the same invalidation mechanism discussed in the "dynamic timestamp" section of this chapter. The difference is that because the status message is near the end of the context, the invalidation range is limited to the most recent few rounds of messages rather than the entire prefix.
+**Implementation 1: Replace each round.** Before each API call, remove the previous round's status message from the message list and append the latest status at the end. This keeps only one current status in the context. The cost is that removing the old status invalidates all cached content after its position, which is the same invalidation mechanism discussed in the "dynamic timestamp" section of this chapter. The difference is that because the status message is near the end of the context, invalidation is limited to messages added since the previous status injection—usually one round—rather than the entire prefix.
 
 **Implementation 2: Persistent appending.** Once injected, the status message remains permanently in the trajectory, and a new status is appended at the end each round. Claude Code's `<system-reminder>` uses this approach: historical status messages remain in the transcript and are never deleted or modified. This method is fully cache-friendly because messages are only appended, never changed, so the prefix remains stable. The cost is that outdated statuses accumulate in the context, consuming tokens and requiring the model to rely on the latest status while ignoring obsolete ones.
 
-The rule of thumb is: **when status updates are frequent and the trajectory is long, choose Implementation 2**. Replacing the status each round repeatedly invalidates cache entries over a long trajectory, which can cost more than carrying outdated status messages. **When the trajectory is short or a single status message is large** (e.g., a complete TODO list plus environment snapshot), **choose Implementation 1**. Cache invalidation over the last few rounds is cheap, and the context remains clean and unambiguous.
+The choice depends on trajectory length, status size, the suffix added between updates, and the expected number of updates. **Choose Implementation 2 when the status is small, many messages are produced between updates, and the session length is bounded**—keeping old statuses is usually cheaper than repeatedly recomputing a long suffix. **Choose Implementation 1 when the status is large, updates are frequent, or the trajectory is long**—it usually invalidates only the short suffix after the previous injection while preventing stale statuses from accumulating.
+
+A rough model gives the break-even point. Let each status contain $S$ tokens, let $R$ tokens be added between updates, let $N$ be the expected number of updates, and let cached input cost $\alpha$ times regular input. Ignoring costs shared by both approaches, $C_{\text{replace}} \approx (N-1)(1-\alpha)R$ and $C_{\text{append}} \approx \alpha S N(N-1)/2$. Thus, prefer Implementation 2 when $\alpha SN/2 < (1-\alpha)R$; otherwise prefer Implementation 1. This estimate excludes context occupancy and ambiguity from stale states, so the final choice should also reflect the provider's cache pricing and measured hit rate.
 
 > **Experiment 2-8 ★★: Several Useful Agent Status Bar Techniques**
 >

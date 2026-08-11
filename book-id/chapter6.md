@@ -32,7 +32,7 @@ Sebelum mendalami metodologinya, mari kita bangun intuisi melalui sebuah contoh 
 
 **Lintasan Agent**:
 
-```
+```text
 User: I want to return the headphones I bought 3 days ago, order number 12345. (Today is 2026-04-10)
 
 Agent (thinking): The user wants a refund, I need to check the order information first.
@@ -108,6 +108,17 @@ Sebuah lingkungan evaluasi terdiri dari lima elemen — bagian selanjutnya akan 
 **Rubrik (Kriteria Penilaian)**: Mengukur performa Agent, yang dapat bersifat biner (lulus/gagal), kontinu (0 hingga 100 poin), atau multi-dimensi (menilai akurasi, efisiensi, dan keamanan secara terpisah).
 
 **Protokol Interaksi**: Menentukan mode interaksi dan kondisi terminasi.
+
+**Loop evaluasi yang dapat diulang:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![Gambar 6-2: Lingkungan Evaluasi Pemanggilan Tool dan Interaksi Manusia-Komputer](images/fig6-2.svg)
 
@@ -367,6 +378,17 @@ rubric:
 
 **Rubric yang Baik vs. Rubric yang Buruk**: Setiap tingkat penilaian di atas menetapkan perilaku yang dapat diverifikasi dan konkret ("Menjawab Dr. Chen dengan benar") alih-alih deskripsi yang tidak dapat dinilai secara objektif, seperti "menunjukkan pemahaman memori yang mendalam." Item veto menetapkan batas bawah: bahkan jika setiap dimensi lain mendapat nilai penuh, satu contoh halusinasi akan secara otomatis menghasilkan nilai nol.
 
+**Veto deterministik sebelum penilaian rubric:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 Kirim Rubric bersama respons aktual Agent ke model penilai untuk memperoleh skor dan alasan per dimensi. Setelah puluhan hasil dikumpulkan, putar ulang jejak yang nilainya rendah. Penurunan tingkat keberhasilan yang semula samar lalu dapat dipecah menjadi diagnosis konkret: informasi tidak ditemukan, hubungan antartokoh keliru, atau jawaban menambahkan hal yang tidak didukung data. Dengan demikian Rubric bukan hanya memberi nilai, tetapi juga menunjukkan bagian yang perlu diperbaiki.
 
 > **Eksperimen 6-3 ★★: Membangun Sistem Evaluasi User Memory Berbasis Rubric**
@@ -605,6 +627,18 @@ Oleh karena itu ada prinsip praktis: **ketika perbedaan skor lebih kecil dari es
 Jebakan lain adalah **perbandingan ganda**. Saat sejumlah hipotesis diuji paralel, peluang setidaknya satu false positive meningkat cepat. Dengan tingkat kepercayaan 95% per kesimpulan, enam hipotesis memberi peluang 1 − 0.95^6 ≈ 26% untuk sedikitnya satu false positive. Mitigasinya adalah memperketat ambang signifikansi, misalnya dengan koreksi Bonferroni, atau mengulang setiap hasil positif dalam uji konfirmasi independen. Kasus AndroidWorld berikut mengubah satu variabel per putaran sehingga tidak memilih pemenang dari banyak perubahan sekaligus. Jika beberapa Prompt atau format observasi disaring paralel, perbandingan ganda harus diperhitungkan dalam kesimpulan.
 
 Keputusan yang didorong oleh evaluasi bergantung pada data berkualitas tinggi, yang berasal dari perekaman sistematis dari proses operasional Agent—inilah yang dibahas oleh observabilitas (observability).
+
+**Perbandingan berpasangan:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Observabilitas Agent (Agent Observability)
 

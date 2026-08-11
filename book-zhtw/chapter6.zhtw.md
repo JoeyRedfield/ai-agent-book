@@ -32,7 +32,7 @@
 
 **Agent 的軌跡**：
 
-```
+```text
 使用者：我想退掉 3 天前買的那個耳機，訂單號 12345。（今天是 2026-04-10）
 
 Agent（思考）：使用者要退款，需要先查詢訂單資訊。
@@ -108,6 +108,17 @@ Agent 評估需要一個可重複執行的自動化環境——能在開發階�
 **評分標準（Rubric，評分準則）**量化 Agent 的表現，可以是二元的（透過/不透過）、連續的（0 到 100 分）或多維的（分別給準確性、效率、安全性打分）。
 
 **執行協定（Interaction Protocol）**規定互動模式和終止條件。
+
+**可重複評估迴圈:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![圖 6-2 工具呼叫型與人機互動型評估環境](images/fig6-2.svg)
 
@@ -367,6 +378,17 @@ rubric:
 
 **好的 Rubric vs 壞的 Rubric**：上面每個評分檔都給出了可驗證的具體行為（「準確回答 Dr. Chen」），而非「展示了對記憶的深刻理解」這類無法客觀判定的描述。否決項明確了底線：即使其他維度全部滿分，一旦出現幻覺就直接判零。
 
+**Rubric 評分前的確定性否決:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 將這個 Rubric 和 Agent 的實際回答一起交給評判模型，模型會逐項評分並說明理由。彙整數十個案例的結果，再回頭檢視低分軌跡，就能把籠統的「成功率下降」拆成具體問題：究竟是沒有找到資訊、弄錯人物關係，還是加入了沒有根據的內容。這樣一來，Rubric 不只告訴我們分數，也指出下一步該改哪裡。
 
 > **實驗 6-3 ★★：建構基於 Rubric 的使用者記憶評估系統**
@@ -609,6 +631,18 @@ Agent 評估還有一層額外的不確定性：同一模型、同一資料集�
 還有一個容易被忽略的陷阱：**多重比較**。當一批假設並行驗證時，「至少一個結論是假陽性」的機率會隨假設數快速累積——即使每個結論都採用 95% 信賴水準，同時檢視 6 個假設，至少遇到一次假陽性的機率仍是 1 − 0.95^6 ≈ 26%。應對方法有兩類：一是隨假設數增加而收緊單項結論的顯著性門檻，例如採用 Bonferroni 類型的校正；二是將所有正向結果放進獨立的確認實驗，只有重現後才採信。後文 AndroidWorld 案例逐輪只改一個變因，正好避免一次試很多改動、最後只挑最好結果的問題；若改成並行篩選多種提示或觀察格式，就必須把多重比較納入結論。
 
 評估驅動的決策依賴於高質量的資料，而這些資料來自對 Agent 執行過程的系統性記錄——這就是可觀測性要解決的問題。
+
+**配對比較:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Agent 的可觀測性
 

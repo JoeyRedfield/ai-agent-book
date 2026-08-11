@@ -4,6 +4,16 @@
 
 ← [Kembali ke README utama](../docs/id/README.md) · 📖 [Baca bab](../book-id/chapter2.md)
 
+## Cara Membaca Eksperimen
+
+Teks utama memakai skeleton mekanisme singkat untuk menjelaskan alur kontrol; direktori eksperimen berisi adapter SDK lengkap, log, pengujian, dan bukti penerimaan. Anda tidak perlu membaca setiap berkas baris demi baris.
+
+- **Starter:** Mulai dari tujuan, perintah minimum, dan syarat penerimaan; awali dengan [context-compression](context-compression/);
+- **Builder:** Telusuri titik masuk, loop inti, skema status/pesan, alat, dan verifier.
+- **Maintainer:** Terakhir, baca pengujian, manifest bukti, penanganan kegagalan, rollback, dan adapter provider.
+
+Pada pembacaan pertama, lewati kredensial, presentasi, dan kompatibilitas provider; kembali saat mereproduksi angka.
+
 ## Proyek Pendamping
 
 | Eksperimen | Proyek | Jenis | Deskripsi |
@@ -14,6 +24,7 @@
 | 2-4 | [prompt-engineering](prompt-engineering/) | ✅ | Mengukur pengaruh unsur prompt melalui eksperimen ablasi yang sistematis. |
 | 2-5 | [prompt-injection](prompt-injection/) | ✅ | Membandingkan tiga skenario serangan dengan empat konfigurasi pertahanan berlapis. |
 | 2-6 | [agent-skills-ppt](agent-skills-ppt/) | ✅ | Mempraktikkan progressive disclosure pada Agent Skills untuk menghasilkan presentasi PPTX. |
+| 2-7 | Eksperimen teks | 🚧 | Membuat Skill penulisan ringan dari contoh pribadi, mencakup kondisi pemicu, aturan, contoh, cakupan, dan pemeliharaan iteratif. |
 | 2-8 | [system-hint](system-hint/) | ✅ | Menguji pengaruh System Hints terhadap perilaku dan kinerja Agent. |
 | 2-9 | [context-compression](context-compression/) | ✅ | Membandingkan beberapa strategi kompresi untuk mengurangi token tanpa kehilangan kemampuan utama. |
 

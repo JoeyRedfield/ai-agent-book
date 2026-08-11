@@ -131,6 +131,33 @@
 - يفحص Sidecar البيانات الهيكلية لاستدعاء الأداة صراحةً دون النظر للنص الحر للنموذج الرئيسي، مما يمنع **هجمات حقن الموجهات (Prompt Injection)**.
 - يعمل كبوابة أمان (Gating Mechanism) تمنع تنفيذ العمليات الخطرة (مثل `rm -rf` أو تعديل إعدادات النشر) دون إتاحة الثغرات الكلامية للالتفاف عليها.
 
+**بوابة أمان الأدوات:**
+
+```python
+proposal = model.tool_call()
+call = parse_and_validate_schema(proposal)
+
+if call is INVALID:
+    return structured_error("invalid arguments")
+
+if not permission_policy.allows(actor, call):
+    return structured_error("permission denied")
+
+risk = classify_risk(call.tool, call.args)
+if risk == HIGH:
+    review = independent_reviewer(
+        trusted_policy,
+        trusted_task_summary,
+        sanitize_and_tag_untrusted_fields(call)
+    )
+    if review != ALLOW:
+        return reject_or_escalate(review)
+
+result = sandbox.execute(call, scope = least_privilege_scope(call))
+checked = verify_result(call, result, observe_environment())
+return checked
+```
+
 ### التحقق التلقائي وحلقة التغذية الراجعة لـ Linter
 
 - **حلقة التنفيذ والتحقق والتغذية الراجعة**: عند كتابة الشفرة أو تعديل الملفات عبر `write_file` أو `edit_file`، يجب تشغيل أداة التحقق النحوي (Linter) تلقائيًا وإرجاع الأخطاء الهيكلية مباشرة في مخرجات الأداة ليقوم الوكيل بإصلاحها في الجولة التالية.
@@ -177,6 +204,23 @@
 2. **المعالجة القائمة على الصف (Queued)**: للأحداث الاعتيادية، حيث تُضاف الأحداث للقائمة وتُعالج بعد النقطة الآمنة التالية.
 3. **المعالجة المتوازية (Parallel)**: الاستعلامات المستقلة الخفيفة التي تُنفذ في حلقة استدلال موازية دون تعطيل المهمة الرئيسية.
 
+**توجيه حلقة الأحداث:**
+
+```python
+while runtime.is_alive:
+    events = queue.take_batch()
+
+    if any(is_urgent(event) for event in events):
+        cancel_at_safe_point(current_work)
+    elif has_independent_fast_query(events):
+        start_parallel_session(events)
+    else:
+        append_to_trajectory(events)
+
+    decision = LLM(context + trajectory)
+    dispatch(decision)
+```
+
 ![الشكل 4-4: بنية Agent موجه بالأحداث لمعالجة البريد](images/fig4-4.svg)
 
 ![الشكل 4-5: التعارض بين التنسيق المتزامن والواقع غير المتزامن](images/fig4-5.svg)
@@ -191,6 +235,20 @@
 
 - **التحول من الاختيار السلبي إلى الاكتشاف النشط**: يعلن Agent عن حاجته عبر طلب هيكلي، ليتولى موجه النظام مطابقة الأداة وإدراجها عند الطلب (مثل MCP-Zero وTool Search Tool).
 - **المطابقة الهرمية (Hierarchical Matching)**: تصنيف الأدوات حسب السيرفر والمجال لتقليل مساحة البحث من آلاف الأدوات إلى عشرات السيرفرات.
+
+**اكتشاف استباقي للأدوات:**
+
+```python
+if capability_is_missing(task):
+    server = search_server_index(capability)
+    tool = search_tool_index(server, capability)
+
+    if tool == NOT_FOUND:
+        retry_with_rewritten_request_or_escalate()
+    else:
+        append_tool_schema_to_trajectory(tool)
+        continue
+```
 
 ![الشكل 4-8: تحسين KV Cache عند التحميل الديناميكي للأدوات](images/fig4-8.svg)
 

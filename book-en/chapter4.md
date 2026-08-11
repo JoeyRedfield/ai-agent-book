@@ -199,7 +199,6 @@ Compared with native multimodal processing, tool-based analysis keeps only a sho
 > - **File System**: File reading and search, directory browsing, file operations (move/copy/delete, etc. — strictly speaking, these are execution tools, but they are often bundled with file reading in the same MCP server)
 > - **Public Data Sources**: Free APIs for weather, stock prices, exchange rates, Wikipedia, ArXiv papers, etc.
 > - **Private Data Sources**: Personal data requiring authorization, such as calendars and Notion
->
 > Most of these tools are based on free, open APIs and can be used without registration. There are already many ready-made perception tool servers available in the MCP ecosystem. Chapter 5 will demonstrate that most of these capabilities can be covered by seven core tools combined with Skill documents.
 
 ## Execution Tools
@@ -257,6 +256,33 @@ Table 4-2 Comparison of Proposer-Reviewer Mechanism and Sidecar Mechanism
 | **Typical Uses** | Irreversible operation approval, document generation, configuration modification | Permission classification, memory relevance judgment, tool output summarization |
 
 Another typical application of the Sidecar pattern is **constructing and enriching context**. While the main model is thinking, a Sidecar call can filter relevant user memories, summarize long tool outputs, or retrieve the user's latest information from a database. These results are ready when the main model needs them, with no perceptible added latency.
+
+**Tool safety gate:**
+
+```python
+proposal = model.tool_call()
+call = parse_and_validate_schema(proposal)
+
+if call is INVALID:
+    return structured_error("invalid arguments")
+
+if not permission_policy.allows(actor, call):
+    return structured_error("permission denied")
+
+risk = classify_risk(call.tool, call.args)
+if risk == HIGH:
+    review = independent_reviewer(
+        trusted_policy,
+        trusted_task_summary,
+        sanitize_and_tag_untrusted_fields(call)
+    )
+    if review != ALLOW:
+        return reject_or_escalate(review)
+
+result = sandbox.execute(call, scope = least_privilege_scope(call))
+checked = verify_result(call, result, observe_environment())
+return checked
+```
 
 **Automated Validation and Feedback Loop.**
 
@@ -491,6 +517,23 @@ Hardcoded rules have limitations; the semantics of the event dictate the handlin
 
 The following experiment, an event-driven email processing Agent, implements the event handling strategies discussed above into a runnable implementation.
 
+**Event-loop routing:**
+
+```python
+while runtime.is_alive:
+    events = queue.take_batch()
+
+    if any(is_urgent(event) for event in events):
+        cancel_at_safe_point(current_work)
+    elif has_independent_fast_query(events):
+        start_parallel_session(events)
+    else:
+        append_to_trajectory(events)
+
+    decision = LLM(context + trajectory)
+    dispatch(decision)
+```
+
 > **Experiment 4-4 ★★★: Event-Driven Email Processing Agent**
 >
 >
@@ -569,7 +612,7 @@ Intervention can be applied at two levels:
 
 **Agent Status Bar Markers**: Add explicit markers before each event:
 
-```
+```text
 [Unprocessed Event 1/4] Tool result from database_query: ...
 [Unprocessed Event 2/4] User supplementary note: Only look at Beijing data
 [Unprocessed Event 3/4] System reminder: Report deadline is in 30 minutes
@@ -636,6 +679,20 @@ The more common engineering equivalent keeps only a few basic tools (web search,
 ![Figure 4-7: Hierarchical Tool Matching (Two-Level Semantic Search: Server-Level → Tool-Level)](images/fig4-7.svg)
 
 **Hierarchical Matching and Fallback.** Efficient matching exploits the hierarchy already present in how tools are organized. In protocols like MCP, tools are grouped by **server** (like apps on a phone, each bundling a set of related functions), so matching can run in two layers: locate the relevant servers by capability description, then match specific tools within them. That shrinks the search space from "thousands of tools" to "dozens of servers × dozens of tools each," saving compute and cutting cross-domain semantic confusion. In engineering terms this rests on an embedding index built offline and updated incrementally. And when both layers' candidates score below threshold, the system should return an explicit "not found," prompting the Agent to rephrase and retry, to improvise with basic tools, or to create a new tool outright (the subject of Chapter 8).
+
+**Proactive tool discovery:**
+
+```python
+if capability_is_missing(task):
+    server = search_server_index(capability)
+    tool = search_tool_index(server, capability)
+
+    if tool == NOT_FOUND:
+        retry_with_rewritten_request_or_escalate()
+    else:
+        append_tool_schema_to_trajectory(tool)
+        continue
+```
 
 ![Figure 4-8: KV Cache Optimization for Dynamic Tool Loading](images/fig4-8.svg)
 

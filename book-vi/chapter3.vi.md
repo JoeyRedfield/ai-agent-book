@@ -20,7 +20,7 @@ Bản chất của hệ thống bộ nhớ người dùng là một quá trình 
 
 Sử dụng một ví dụ cụ thể để hiểu quá trình này. Giả sử rằng người dùng có cuộc trò chuyện sau với Agent:
 
-```
+```text
 User: Help me book a flight to Tokyo next Friday. I prefer window seats
       and I'm vegetarian, so I'll need a special meal.
 Agent: I'll search for flights to Tokyo for next Friday...
@@ -32,12 +32,27 @@ User: Yes, and use my United MileagePlus number 12345678.
 
 Sau khi cuộc trò chuyện kết thúc, framework Agent sẽ gọi một LLM đặc biệt để phân tích nội dung cuộc trò chuyện và trích xuất thông tin đáng nhớ lâu dài:
 
-```
+```text
 Extracted memories:
 - User prefers window seats (preference)
 - User is vegetarian, needs special meals on flights (dietary restriction)
 - User's United MileagePlus number: 12345678 (loyalty program)
 - User has travel plans to Tokyo (recent activity)
+```
+
+**Vòng đời memory:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 Hãy lưu ý một số đặc điểm chính của quá trình trích xuất này:
@@ -127,50 +142,74 @@ Nó chia quá trình cập nhật bộ nhớ thành hai giai đoạn [^uac]: **g
 
 Dưới đây là một ví dụ đơn giản. Trong giai đoạn có cấu trúc, hộ chiếu và hành trình của người dùng được lưu trữ thành trạng thái có kiểu:
 
-```python
-from datetime import date
+**Log chỉ-ghi-thêm và checkpoint:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-# ...phần còn lại của hành trình
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**Trạng thái người dùng có kiểu:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 Với trạng thái có kiểu, ba việc trước đây chỉ có thể thực hiện được bằng cách "đọc văn bản rồi tính nhẩm" LLM giờ đã trở thành các mã xác định:
 
 Một, **số liệu thống kê tổng hợp**. "Năm ngoái tôi đã đi nước ngoài bao nhiêu lần?"—trong bộ nhớ văn bản, bạn phải gọi lại tất cả hành trình và đếm từng cái; số bản ghi càng nhiều thì lỗi càng dễ xảy ra. Với User as Code, đó chỉ là một biểu thức và độ chính xác gần 100%[^uac]:
 
+**Gộp xác định:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 Thứ hai, **phát hiện xung đột**. Đặt hai trạng thái "thuốc hiện tại" và "tiền sử dị ứng" lại với nhau, một chức năng có thể tham chiếu chéo theo danh mục thuốc và phát hiện ra những mâu thuẫn nằm rải rác trong các cuộc trò chuyện khác nhau và hầu như không thể tự động tương quan dưới dạng văn bản:
 
+**Phát hiện xung đột:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"Xung đột về thuốc: {med.name} thuộc lớp {med.drug_class},"
-                       f"và bệnh nhân bị dị ứng nặng với {allergy.allergen}")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 Thứ ba, **thực thi ràng buộc**. Agent có thể củng cố chức năng kiểm tra như vậy và tự động kích hoạt nó mỗi khi trạng thái được cập nhật - nó có thể chủ động nhắc nhở người dùng mà không cần phải nói hay tìm kiếm. Ví dụ: hạn chế hiệu lực của hộ chiếu: nếu ngày khởi hành của chuyến đi nước ngoài ít hơn 180 ngày trước khi hộ chiếu hết hạn, cảnh báo sẽ được kích hoạt.
 
+**Thực thi ràng buộc:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"Hộ chiếu {passport.expiry_date} hết hạn, chuyến đi {trip.destination} "
-                       f"chỉ còn {days} ngày, vui lòng gia hạn càng sớm càng tốt")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: Để có thiết kế và đánh giá hoàn chỉnh về dự án biến bộ nhớ người dùng thành mã thực thi, hãy xem Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -297,6 +336,21 @@ Mẫu của cả hai ví dụ hoàn toàn giống nhau: **Truy xuất các đo�
 
 Chất lượng của trình tìm kiếm trực tiếp xác định tính hiệu quả của RAG - nếu không thể truy xuất được các mảnh liên quan, LLM sẽ vô dụng cho dù nó có mạnh đến đâu. Phần này trước tiên xem xét quy trình đầu tiên của việc nhập tài liệu vào cơ sở tri thức - phân đoạn, sau đó tập trung vào hai tuyến kỹ thuật chính của bộ truy xuất: nhúng dày đặc (dựa trên hiểu biết ngữ nghĩa) và nhúng thưa thớt (dựa trên kết hợp từ khóa) và cách kết hợp cả hai.
 
+**Pipeline RAG lai:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![Hình 3-5 Quy trình truy vấn RAG: truy xuất, nâng cao và tạo ](images/fig3-5.svg)
 
@@ -515,7 +569,7 @@ Do đó, chiến lược được đề xuất trong thực tế là **bổ sung
 
 RAPTOR và GraphRAG đại diện cho hành trình khám phá tổ chức tri thức của cộng đồng học thuật, trong khi [OpenViking](https://github.com/volcengine/OpenViking), có nguồn mở bởi Bytedance Volcano Engine, đề xuất triết lý thứ ba: **Mô hình hệ thống tệp**. Thay vì xử lý các ngữ cảnh như các đoạn vectơ phẳng hoặc các nút biểu đồ, nó ánh xạ tất cả các ngữ cảnh—bộ nhớ, tài nguyên, kỹ năng—dưới dạng thư mục và tệp trong hệ thống tệp ảo, với mỗi mục nhập có một URI duy nhất:
 
-```
+```text
 viking://
 ├── resources/ # Kiến thức bên ngoài: tài liệu, code base, trang web
 ├── user/memories/ # Ký ức người dùng: sở thích, thói quen

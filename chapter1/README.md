@@ -10,11 +10,21 @@
 政策验收：官方 OpenAI 路径保留但仍受配额阻塞，阿里云百炼 qwen3.7-plus 的
 Responses API（hosted web_search + code_interpreter）实测通过全部验收门。
 
+## 如何阅读实验
+
+正文用短 skeleton 解释控制流；实验目录承载完整 SDK 适配、日志和验收。无需逐行读完每个文件，建议按三层推进：
+
+- **Starter**：先读目标、最小命令和验收条件，推荐从 [context](context/) 开始；
+- **Builder**：沿 main.py 的入口追踪上下文、工具调用和消融变量，再看 [web-search-agent](web-search-agent/) 的多轮循环；
+- **Maintainer**：最后阅读 tests/、证据 manifest、失败回退和 provider adapter。
+
+首次阅读可跳过凭据加载、展示层和 provider 兼容代码；当你要复现实验数字时，再回到 [验收台账](EXPERIMENT_LEDGER.md)。
+
 ## 配套项目
 
 | 编号 | 项目 | 类型 | 一句话说明 |
 | :--: | --- | :--: | --- |
-| 1-1 | [context](context/) | ✅ | 系统性消融实验展示 Agent 上下文各组件的重要性；支持 SiliconFlow Qwen、字节 Doubao、月之暗面 Kimi 等多提供商 |
+| 1-1 | [context](context/) | ✅ | 系统性消融实验展示 Agent 上下文各组件的重要性；支持阿里云百炼直连 Qwen、SiliconFlow Qwen、字节 Doubao、月之暗面 Kimi 等多提供商 |
 | 1-2 | [web-search-agent](web-search-agent/) | ✅ | Kimi K3 模型即 Agent，具备基础深度搜索能力，能进行多轮搜索和信息整合 |
 | 1-3 | [search-codegen](search-codegen/) | ✅ | 模型自主多轮搜索 + 服务端代码执行的 Deep Research 闭环，先澄清意图再执行；官方 GPT-5.6 路径保留，阿里云百炼 qwen3.7-plus（hosted web_search + code_interpreter）实测通过东盟首都距离与比特币技术分析全部验收门 |
 | 7-1, 7-2 | [learning-from-experience](learning-from-experience/) | ✅ | 10,000 局 Q-learning + 100 局评估与官方 Kimi K3 第一局双臂实测已验收；[证据](learning-from-experience/validation/20260730_011704/evidence.json)记录 Kimi 17 步成功、零 fallback 及历史点估计差异 |

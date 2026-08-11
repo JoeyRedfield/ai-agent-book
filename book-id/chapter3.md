@@ -20,7 +20,7 @@ Intinya, sistem memori pengguna adalah proses belajar aktif berkelanjutan untuk 
 
 Mari kita lihat contoh nyatanya. Bayangkan percakapan pengguna dan Agent berikut:
 
-```
+```text
 User: Tolong pesankan tiket pesawat ke Tokyo untuk Jumat depan. Saya suka kursi dekat jendela dan saya seorang vegetarian, jadi saya butuh makanan khusus.
 Agent: Saya akan mencari penerbangan ke Tokyo untuk Jumat depan...
        [memanggil tool flight_search, mengembalikan 3 opsi]
@@ -30,12 +30,27 @@ User: Ya, dan gunakan nomor United MileagePlus saya 12345678.
 
 Setelah percakapan ini usai, sistem Agent akan memanggil LLM khusus untuk menganalisis dialog dan menyaring informasi yang patut diingat selamanya:
 
-```
+```text
 Memori yang diekstrak:
 - Pengguna suka kursi dekat jendela (preferensi)
 - Pengguna vegetarian, butuh makanan khusus di pesawat (batasan diet)
 - Nomor United MileagePlus pengguna: 12345678 (program loyalitas)
 - Pengguna punya rencana bepergian ke Tokyo (aktivitas terbaru)
+```
+
+**Siklus hidup memori:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 Perhatikan beberapa sifat utama proses ekstraksi ini:
@@ -125,51 +140,74 @@ Konsep tersebut membagi pembaruan memori ke dalam dua tahapan[^uac]: tahap memor
 
 Berikut contoh ringkasnya. Pada fase strukturisasi, sistem menyimpan dokumen perjalanan dan paspor pengguna sebagai state bertipe yang ketat:
 
-```python
-from datetime import date
+**Log append-only dan checkpoint:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... remaining trips
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**State pengguna bertipe:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 Bersenjata wujud state bertipe (typed state) ini, tiga tugas yang sebelumnya menuntut LLM untuk membaca teks dan melakukan kalkulasi mental (mental arithmetic), kini berubah menjadi kode yang deterministik (deterministic code):
 
 Pertama, **pengumpulan statistik (statistical aggregation)**. "Berapa banyak perjalanan internasional yang saya lakukan pada tahun 2025?"—dengan memori berbasis teks, Anda harus memanggil ulang setiap perjalanan dan menghitungnya satu per satu, dan kesalahan makin mungkin terjadi seiring bertambahnya jumlah catatan; sedangkan dengan User as Code, hal tersebut hanyalah satu ekspresi yang mencapai akurasi hampir 100%[^uac]:
 
+**Agregasi deterministik:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 Kedua, **deteksi konflik (conflict detection)**. Dengan mensejajarkan "pengobatan saat ini" dan "alergi", sebuah fungsi tunggal mampu menyilangkan data tersebut (cross-reference) berdasarkan kelas obat (drug class), serta menyingkap kontradiksi yang tersebar melintasi beragam percakapan berbeda, yang mana hal ini nyaris mustahil untuk dikaitkan secara otomatis dalam format teks:
 
+**Deteksi konflik:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"Medication conflict: {med.name} belongs to {med.drug_class} class, "
-                       f"but the patient is severely allergic to {allergy.allergen}")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 Ketiga, **penegakan batasan (constraint enforcement)**. Agent dapat menyandikan fungsi pemeriksaan (check functions) semacam itu dan memicunya (trigger) secara otomatis setiap kali statusnya diperbarui (updated)—tanpa mengharuskan pengguna untuk berbicara atau Agent untuk memanggil (retrieve) apa pun. Sebagai contoh, batasan mutlak pada masa kedaluwarsa paspor: bunyikan peringatan (alert) jika paspor tersebut kedaluwarsa dalam kurang dari 180 hari setelah tanggal keberangkatan perjalanan internasional (international trip departure).
 
+**Penegakan constraint:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"Passport expires on {passport.expiry_date}, only {days} days "
-                       f"between the {trip.destination} departure and passport expiry. "
-                       f"Please renew as soon as possible.")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: Desain lengkap dan evaluasi dalam membangun User Memory sebagai proyek kode yang dapat dieksekusi dapat ditemukan di Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -293,6 +331,22 @@ answer = llm.generate(system="Anda adalah asisten layanan pelanggan.", context=r
 Polanya identik pada kedua contoh: **Retrieve fragmen yang relevan → Suntikkan ke dalam konteks → LLM menghasilkan jawaban berdasarkan konteks**. Nilai inti dari RAG adalah memungkinkan LLM untuk menggunakan pengetahuan yang belum pernah dilihatnya selama pelatihan (konten Wikipedia terbaru, dokumen internal perusahaan) tanpa perlu melatih ulang model tersebut.
 
 Kualitas dari *retriever* secara langsung menentukan keefektifan RAG—jika ia tidak dapat melakukan *retrieve* pada fragmen yang relevan, bahkan LLM terkuat pun tidak memiliki apapun untuk dikerjakan. Bagian ini dimulai dengan langkah pertama untuk memasukkan dokumen ke dalam Knowledge Base—*chunking*—kemudian beralih ke dua pendekatan *retrieval* utama, Dense Embeddings (pemahaman semantik) dan Sparse Embeddings (pencocokan kata kunci), serta bagaimana menggabungkan keduanya.
+
+**Pipeline RAG hibrida:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![Gambar 3-5: Alur Kueri RAG: Retrieval, Augmentation, dan Generation](images/fig3-5.svg)
 
@@ -498,7 +552,7 @@ Oleh karena itu, strategi yang direkomendasikan dalam praktiknya adalah **desain
 
 RAPTOR dan GraphRAG mewakili eksplorasi komunitas akademis terhadap organisasi pengetahuan; [OpenViking](https://github.com/volcengine/OpenViking), yang bersifat open-source oleh Volcano Engine dari ByteDance, mengusulkan filosofi ketiga: **paradigma sistem file**. Ia memperlakukan konteks bukan sebagai fragmen vektor datar ataupun node grafik. Alih-alih, ia memetakan seluruh konteks—memori, sumber daya, keterampilan—ke dalam direktori dan file di dalam sistem file virtual, masing-masing dengan URI unik:
 
-```
+```text
 viking://
 ├── resources/          # Pengetahuan eksternal: dokumen, basis kode, halaman web
 ├── user/memories/      # User Memory: preferensi, kebiasaan

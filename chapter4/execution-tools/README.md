@@ -5,6 +5,16 @@
 
 ← [Chapter 4 index / 返回第 4 章目录](../README.md)
 
+## Code map
+
+- **Run first:** `python cli.py demo` (offline end-to-end path).
+- **Start here:** `cli.py::cmd_demo` constructs `ExecutionTools`; `execution_tools.py::ExecutionTools` is the shared execution surface.
+- **Core behavior:** `file_tools.py::FileTools`, `terminal_controller.py::TerminalController` and `multilang_executor.py::LanguageExecutor` implement validation, execution and output handling.
+- **State / protocol:** `experiment_protocol.json`, workspace boundaries, approval flags and structured tool-result fields.
+- **Verifier:** `test_execution_tools.py`, `test_file_tools.py`, `test_terminal_controller.py` and `run_experiment_4_3.py` acceptance gates.
+- **Experiment variable:** approval, syntax verification, long-output summarization/truncation and sandbox settings.
+- **Skip on first pass:** MCP transport, calendar/GitHub integrations and provider-specific LLM adapters.
+
 ---
 
 ## English
@@ -70,6 +80,9 @@ PROVIDER=kimi
 
 # API Keys (set the one for your provider)
 KIMI_API_KEY=your_kimi_key
+# DashScope / Bailian (Qwen)
+# PROVIDER=dashscope  # qwen and bailian are accepted aliases
+# DASHSCOPE_API_KEY=your_dashscope_key
 # SILICONFLOW_API_KEY=your_siliconflow_key
 # DOUBAO_API_KEY=your_doubao_key
 # OPENROUTER_API_KEY=your_openrouter_key
@@ -93,6 +106,7 @@ AUTO_VERIFY_CODE=true
 
 **Supported Providers:**
 - `siliconflow`: Qwen/Qwen3-235B-A22B-Thinking-2507
+- `dashscope` / `qwen` / `bailian`: qwen3.7-plus (Alibaba Cloud Model Studio)
 - `doubao`: doubao-seed-1-6-thinking-250715  
 - `kimi`/`moonshot`: kimi-k3
 - `openrouter`: google/gemini-3.5-flash (or openai/gpt-5.6-luna, anthropic/claude-sonnet-4.6)
@@ -312,6 +326,9 @@ PROVIDER=kimi
 
 # API Keys (set the one for your provider)
 KIMI_API_KEY=your_kimi_key
+# DashScope / Bailian (Qwen)
+# PROVIDER=dashscope  # qwen and bailian are accepted aliases
+# DASHSCOPE_API_KEY=your_dashscope_key
 # SILICONFLOW_API_KEY=your_siliconflow_key
 # DOUBAO_API_KEY=your_doubao_key
 # OPENROUTER_API_KEY=your_openrouter_key
@@ -335,6 +352,7 @@ AUTO_VERIFY_CODE=true
 
 **支持的 Provider：**
 - `siliconflow`：Qwen/Qwen3-235B-A22B-Thinking-2507
+- `dashscope` / `qwen` / `bailian`：qwen3.7-plus（阿里云百炼 / Model Studio）
 - `doubao`：doubao-seed-1-6-thinking-250715  
 - `kimi`/`moonshot`：kimi-k3
 - `openrouter`：google/gemini-3.5-flash（或 openai/gpt-5.6-luna、anthropic/claude-sonnet-4.6）

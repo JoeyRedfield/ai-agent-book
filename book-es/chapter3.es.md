@@ -20,7 +20,7 @@ La esencia del sistema de memoria del usuario es un proceso de aprendizaje activ
 
 Comprendamos este proceso con un ejemplo concreto. Supongamos que el usuario y el Agente sostienen la siguiente conversación:
 
-```
+```text
 User: Help me book a flight to Tokyo next Friday. I prefer window seats
       and I'm vegetarian, so I'll need a special meal.
 Agent: I'll search for flights to Tokyo for next Friday...
@@ -32,12 +32,27 @@ User: Yes, and use my United MileagePlus number 12345678.
 
 Una vez finalizada esta conversación, el marco del Agente ejecutará una llamada dedicada a un LLM para analizar el contenido y extraer la información que vale la pena recordar a largo plazo:
 
-```
+```text
 Extracted memories:
 - User prefers window seats (preference)
 - User is vegetarian, needs special meals on flights (dietary restriction)
 - User's United MileagePlus number: 12345678 (loyalty program)
 - User has travel plans to Tokyo (recent activity)
+```
+
+**Ciclo de vida de la memoria:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 Observemos varias características clave de este proceso de extracción:
@@ -127,50 +142,74 @@ User as Code divide la actualización de la memoria en dos fases[^uac]: la **fas
 
 A continuación se muestra un ejemplo simplificado. La fase de estructuración guarda el pasaporte y los viajes del usuario como estados tipados:
 
-```python
-from datetime import date
+**Registro de solo anexado y checkpoint:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... resto de los itinerarios
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**Estado de usuario tipado:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 Gracias a los estados tipados, tres operaciones que antes requerían que el LLM leyera el texto y realizara cálculos mentales se convierten en código determinista:
 
 En primer lugar, la **estadística de agregación**. "¿Cuántas veces viajé al extranjero el año pasado?": en la memoria textual habría que recuperar todos los viajes y contarlos uno a uno, lo que genera más errores a medida que crece el número de registros; en User as Code se resuelve con una sola línea de código, alcanzando una precisión cercana al 100%[^uac]:
 
+**Agregación determinista:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 En segundo lugar, la **detección de conflictos**. Al colocar juntos los estados de "medicación actual" e "historial de alergias", una función puede realizar un cruce de categorías farmacológicas y detectar contradicciones dispersas en conversaciones distintas que serían casi imposibles de asociar automáticamente en texto plano:
 
+**Detección de conflictos:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"Conflicto de medicación: {med.name} pertenece a la clase {med.drug_class}, "
-                       f"pero el paciente es severamente alérgico a {allergy.allergen}")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 En tercer lugar, la **ejecución de restricciones**. El Agente puede fijar estas funciones de verificación para que se ejecuten automáticamente cada vez que se actualice el estado, emitiendo alertas proactivas sin necesidad de que el usuario lo solicite ni de realizar búsquedas. Por ejemplo, una restricción sobre la validez del pasaporte: emitir una alarma si faltan menos de 180 días entre la fecha de salida de un viaje internacional y el vencimiento del pasaporte.
 
+**Aplicación de restricciones:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"El pasaporte vence el {passport.expiry_date}, a solo {days} días "
-                       f"del viaje a {trip.destination}. Por favor renuévelo cuanto antes")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -297,6 +336,21 @@ El patrón en ambos ejemplos es idéntico: **Recuperar fragmentos relevantes →
 
 La calidad del recuperador determina directamente la eficacia de RAG: si no logra encontrar los fragmentos relevantes, por muy potente que sea el LLM no podrá generar una buena respuesta. En esta sección examinaremos primero el paso previo a la entrada de documentos en la base de conocimiento (la fragmentación), para luego enfocar las dos rutas técnicas principales de búsqueda: embeddings densos (basados en comprensión semántica) y embeddings dispersos (basados en coincidencia de palabras clave), así como la forma de combinar ambas.
 
+**Pipeline RAG híbrido:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![Figura 3-5: Flujo de consulta RAG: Recuperación, Aumento y Generación](images/fig3-5.svg)
 
@@ -519,7 +573,7 @@ Por ello, la estrategia recomendada en la práctica es la **complementariedad po
 
 Mientras que RAPTOR y GraphRAG representan la exploración académica de la organización del conocimiento, el proyecto de código abierto [OpenViking](https://github.com/volcengine/OpenViking) de Volcano Engine (ByteDance) propone una tercera filosofía: el **paradigma del sistema de archivos**. En lugar de considerar el contexto como fragmentos vectoriales planos o nodos de un grafo, mapea todo el contexto (memorias, recursos, habilidades) a directorios y archivos en un sistema de archivos virtual, asignando a cada elemento una URI única:
 
-```
+```text
 viking://
 ├── resources/          # Conocimiento externo: documentos, repositorios, webs
 ├── user/memories/      # Memoria del usuario: preferencias, hábitos

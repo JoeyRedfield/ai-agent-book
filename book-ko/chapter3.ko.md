@@ -40,6 +40,21 @@ Extracted memories:
 - User has travel plans to Tokyo (recent activity)
 ```
 
+**메모리 수명 주기:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
+```
+
 이 추출 과정에는 몇 가지 핵심 특성이 있습니다.
 
 **선택성**—에이전트는 “검색에서 선택지 세 개를 반환했다”처럼 일시적인 정보는 기억하지 않고 미래에 유용한 사실만 보존합니다.
@@ -127,51 +142,74 @@ LoCoMo와 비슷한 벤치마크, 상용 메모리 제품의 실천을 함께 �
 
 아래는 단순화한 예입니다. 구조화 단계에서 사용자의 여권과 여행을 타입이 지정된 상태로 저장합니다.
 
-```python
-from datetime import date
+**추가 전용 로그와 체크포인트:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... remaining trips
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**타입이 있는 사용자 상태:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 타입이 지정된 상태를 사용하면 예전에는 LLM이 “텍스트를 읽고 암산”해야 했던 세 가지 작업을 결정론적인 코드로 바꿀 수 있습니다.
 
 첫째, **통계 집계**입니다. “2025년에 해외에 몇 번 갔는가?”라는 질문을 텍스트 메모리로 처리하려면 모든 여행을 회상해 하나씩 세어야 하며 기록이 늘수록 오류가 생기기 쉽습니다. User as Code에서는 표현식 하나로 처리하여 거의 100%의 정확도를 달성합니다[^uac].
 
+**결정론적 집계:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 둘째, **충돌 탐지**입니다. “현재 복용 중인 약”과 “알레르기 이력”을 나란히 두면 함수 하나가 약물 계열을 기준으로 교차 확인할 수 있습니다. 서로 다른 대화에 흩어져 있어 텍스트 형태로는 자동 연결하기가 거의 불가능한 모순을 찾아냅니다.
 
+**충돌 감지:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"Medication conflict: {med.name} belongs to {med.drug_class} class, "
-                       f"but the patient is severely allergic to {allergy.allergen}")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 셋째, **제약 강제**입니다. 에이전트는 이러한 검사 함수를 코드로 만들고 상태가 갱신될 때마다 자동으로 실행할 수 있습니다. 사용자가 별도로 말하거나 에이전트가 무언가 검색할 필요가 없습니다. 예를 들어 국제 여행의 출발일에서 180일 안에 여권이 만료되면 경고하는 여권 유효성 제약을 만들 수 있습니다.
 
+**제약 적용:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"Passport expires on {passport.expiry_date}, only {days} days "
-                       f"between the {trip.destination} departure and passport expiry. "
-                       f"Please renew as soon as possible.")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: 사용자 메모리를 실행 가능한 코드 프로젝트로 구축하는 전체 설계와 평가는 Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026을 참조하세요.
@@ -298,6 +336,21 @@ answer = llm.generate(system="You are a customer service assistant.", context=re
 
 검색기의 품질은 RAG의 효과를 직접 좌우합니다. 관련 조각을 검색하지 못하면 아무리 강력한 LLM도 활용할 자료가 없습니다. 이 절에서는 먼저 문서를 지식 베이스에 넣는 첫 단계인 청킹을 다루고, 이어서 두 가지 주요 검색 방식인 밀집 임베딩(의미 이해)과 희소 임베딩(키워드 일치), 그리고 두 방식을 결합하는 방법을 살펴봅니다.
 
+**하이브리드 RAG 파이프라인:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![그림 3-5 RAG 질의 흐름: 검색, 증강, 생성](images/fig3-5.svg)
 

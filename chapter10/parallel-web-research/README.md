@@ -1,4 +1,4 @@
-# Experiment 10-6 · Parallel research with real browser sessions
+# Experiment 10-4 · Parallel research with real browser sessions
 
 This implementation uses no simulated sources, canned content, or artificial source latency. The Manager dynamically launches one homogeneous worker per real university URL. Every worker owns an isolated Playwright Chromium browser context, navigates the live page, reads rendered text, and uses a real configured LLM endpoint for evidence-constrained profile extraction.
 
@@ -11,6 +11,16 @@ Implemented requirements:
 - Navigation and LLM extraction race against the terminate event. Losing workers cancel at a safe point, acknowledge, and close their browser context.
 - Context creation/closure counters make leaked browser sessions an explicit failing audit.
 - Serial and parallel paths visit the same live sites and use the same extraction function; wall-clock time and speedup are measured, not estimated.
+
+## Code map
+
+- **Run first:** python demo.py --target "Professor Name" --sites-json sites.example.json --agents 3.
+- **Start here:** agents.py::search_one and the Manager run path in run_official_experiment.py.
+- **Core behavior:** worker navigation/extraction, async message bus, first-target settlement and cancellation.
+- **State / protocol:** task IDs, status/result/terminate events, worker registry and manifest.
+- **Verifier:** evidence-constrained extraction, acceptance gates, lock-protected single winner, acknowledgement count and browser-context closure.
+- **Experiment variable:** site count, serial versus parallel scheduling and cascade timing.
+- **Skip on first pass:** provider request serialization, HTML fixtures and report formatting.
 
 ## Run
 

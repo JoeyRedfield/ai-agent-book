@@ -245,6 +245,33 @@ Sidecar 模式的另一個典型應用是**上下文豐富**：主模型在思�
 
 對於安全性 Sidecar，還需要配備**拒絕熔斷器**：當分類器連續多次拒絕操作時，系統不應無限重試（這會浪費資源，還可能讓使用者陷入死迴圈），而應回退到請求使用者手動判斷。這正是第一章 Harness「糾正」功能的典型例項。
 
+**工具安全閘:**
+
+```python
+proposal = model.tool_call()
+call = parse_and_validate_schema(proposal)
+
+if call is INVALID:
+    return structured_error("invalid arguments")
+
+if not permission_policy.allows(actor, call):
+    return structured_error("permission denied")
+
+risk = classify_risk(call.tool, call.args)
+if risk == HIGH:
+    review = independent_reviewer(
+        trusted_policy,
+        trusted_task_summary,
+        sanitize_and_tag_untrusted_fields(call)
+    )
+    if review != ALLOW:
+        return reject_or_escalate(review)
+
+result = sandbox.execute(call, scope = least_privilege_scope(call))
+checked = verify_result(call, result, observe_environment())
+return checked
+```
+
 **自動驗證與回饋閉環。**
 
 執行工具的另一個重要設計原則是：**如果操作結果可以被驗證，就應該自動驗證**。以程式碼編寫為例，當 Agent 呼叫 `write_file` 建立或修改程式碼檔案時，工具不應只寫入內容然後返回「成功」，而應在寫入後立即執行語法檢查：根據檔案型別呼叫相應的 linter（程式碼靜態檢查工具），將輸出解析為結構化的錯誤列表，作為工具返回值的一部分返回給 Agent。
@@ -481,6 +508,23 @@ PineClaw 的解決方案是引入 **Channel 機制**——在 OpenClaw 的 Gatew
 
 下面透過一個事件驅動的郵件處理 Agent 實驗，將上述事件處理策略落地為可執行的實現。
 
+**事件迴圈路由:**
+
+```python
+while runtime.is_alive:
+    events = queue.take_batch()
+
+    if any(is_urgent(event) for event in events):
+        cancel_at_safe_point(current_work)
+    elif has_independent_fast_query(events):
+        start_parallel_session(events)
+    else:
+        append_to_trajectory(events)
+
+    decision = LLM(context + trajectory)
+    dispatch(decision)
+```
+
 > **實驗 4-4 ★★★：事件驅動的郵件處理 Agent**
 >
 >
@@ -559,7 +603,7 @@ PineClaw 的解決方案是引入 **Channel 機制**——在 OpenClaw 的 Gatew
 
 **Agent 狀態列標記**：在每個事件前新增顯式標記：
 
-```
+```text
 [未處理事件 1/4] Tool result from database_query：...
 [未處理事件 2/4] User 補充說明：只看北京地區的資料
 [未處理事件 3/4] 系統提醒：報告截止時間還有 30 分鐘
@@ -628,6 +672,20 @@ PineClaw 的解決方案是引入 **Channel 機制**——在 OpenClaw 的 Gatew
 ![圖 4-7 層次化工具匹配（伺服器級→工具級兩層語義搜尋）](images/fig4-7.svg)
 
 **層次化匹配與降級。** 高效匹配的關鍵在於工具組織本身具有層次結構：在 MCP 等協定中，工具按**伺服器**分組（類似手機上的 App，每個 App 提供一組相關功能），於是匹配可分兩層——先按能力描述定位相關伺服器，再在伺服器內匹配具體工具，把搜尋空間從「數千個工具」縮小為「數十個伺服器 × 每個伺服器數十個工具」，既省算力也減少跨領域的語義混淆。工程上這依賴一個離線建構、支援增量更新的嵌入索引；若兩層匹配的候選相似度都低於閾值，則應明確返回「未找到」，讓 Agent 改寫需求重試、用基礎工具手工實現，或乾脆創造一個新工具（創造工具是第八章的主題）。
+
+**主動工具發現:**
+
+```python
+if capability_is_missing(task):
+    server = search_server_index(capability)
+    tool = search_tool_index(server, capability)
+
+    if tool == NOT_FOUND:
+        retry_with_rewritten_request_or_escalate()
+    else:
+        append_tool_schema_to_trajectory(tool)
+        continue
+```
 
 ![圖 4-8 工具動態載入的 KV Cache 最佳化](images/fig4-8.svg)
 

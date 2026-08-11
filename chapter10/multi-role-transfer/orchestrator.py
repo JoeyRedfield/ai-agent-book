@@ -1,7 +1,7 @@
 """
 orchestrator.py —— 多角色移交（handoff）编排器。
 
-核心机制（实验 10-2）：
+核心机制（实验 10-1）：
 - 全程维护一段【共享对话历史】history（user/assistant/tool 消息）。
 - 每次调用大模型时，把【当前角色】的系统提示词临时拼到 history 前面，
   并只暴露【当前角色的工具集 + transfer_to_agent】。
@@ -52,6 +52,7 @@ class MultiRoleOrchestrator:
         client: OpenAI,
         model: str = "gpt-5.6-luna",
         max_steps: int = 20,
+        max_output_tokens: Optional[int] = None,
         verbose: bool = True,
         start_role: str = DEFAULT_ROLE,
         provider_receipt_sink: Optional[Callable[[dict], None]] = None,
@@ -62,6 +63,7 @@ class MultiRoleOrchestrator:
         self.client = client
         self.model = model
         self.max_steps = max_steps
+        self.max_output_tokens = max_output_tokens
         self.verbose = verbose
 
         self.history: List[dict] = []          # 共享对话历史（不含 system）
@@ -118,6 +120,8 @@ class MultiRoleOrchestrator:
             tools=self._tools_for_current_role(),
             temperature=0,
         )
+        if self.max_output_tokens is not None:
+            kwargs["max_tokens"] = self.max_output_tokens
         started = time.monotonic()
         try:
             response = self.client.chat.completions.create(**kwargs)

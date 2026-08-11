@@ -332,7 +332,7 @@ Logic cốt lõi của mã này chỉ là vòng lặp while và phán đoán: **
 Hãy cùng theo dõi sự thay đổi của danh sách `messages` qua từng vòng đấu:
 
 **Trạng thái ban đầu (trước cuộc gọi đầu tiên):**
-```
+```text
 messages = [
 { role: "system", content: "Bạn là một trợ lý hữu ích..." }, # Viết bởi nhà phát triển
 { role: "user", content: "Thời gian và thời tiết hiện tại ở Vancouver thế nào?" }, # Đầu vào của người dùng
@@ -340,7 +340,7 @@ messages = [
 ```
 
 **Sau lệnh gọi đầu tiên (mô hình trả về lệnh gọi công cụ):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -351,7 +351,7 @@ messages = [
 ```
 
 **Sau cuộc gọi thứ 2 (mô hình trả về câu trả lời cuối cùng, vòng lặp kết thúc):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -373,6 +373,25 @@ Qua ví dụ trên, chúng ta có thể thấy rõ thành phần hoàn chỉnh c
 Nửa trên (Dấu nhắc hệ thống + Định nghĩa công cụ) không đổi trong suốt cuộc trò chuyện và nửa dưới (lịch sử cuộc trò chuyện, trajectory được xác định trong Chương 1) sẽ tăng lên khi quá trình tương tác diễn ra. Đây chính xác là nội dung của Chương 1 "Năm thành phần của ngữ cảnh" ở cấp độ API: các system prompt và định nghĩa công cụ tạo thành một tiền tố tĩnh và các thông báo của người dùng, câu trả lời mô hình và kết quả thực thi công cụ tạo thành một lịch sử thông báo phát triển linh hoạt. Cấu trúc "tiền tố tĩnh + trajectory" này là cơ sở cho cuộc thảo luận tiếp theo về tối ưu hóa KV Cache, nén ngữ cảnh và các công nghệ khác - nếu bạn hiểu cấu trúc này, bạn có thể hiểu tại sao "mặt trước không thể di chuyển được, nhưng mặt sau có thể được nén".
 
 Phần còn lại của chương này sẽ tập trung vào từng lớp của cấu trúc này: cách sử dụng tính bất biến của tiền tố tĩnh để tăng tốc khả năng suy luận (KV Cache), cách thiết kế Dấu nhắc hệ thống tốt (Prompt Engineering nhở), cách ngăn nội dung bên ngoài chiếm quyền điều khiển ngữ cảnh (phòng thủ prompt injection nhở), cách tải kiến thức chuyên môn theo yêu cầu (Kỹ năng Agent), cách đưa thông tin trạng thái động vào cuối cuộc trò chuyện (Agent) thanh trạng thái) và cách nén lịch sử hội thoại một cách thông minh khi nó phình to (chiến lược nén).
+
+**Xây dựng context trước mỗi request:**
+
+```python
+stable_prefix = system_message
+stable_tools = core_tool_schemas
+trajectory = load_message_history(session)
+status_message = make_status_message(derive_current_state(trajectory))
+
+if estimated_tokens(stable_prefix, trajectory, status_message) > budget:
+    trajectory = compress_old_evidence(
+        trajectory,
+        preserve = [decisions, constraints, failures, citations]
+    )
+
+request.messages = [stable_prefix] + trajectory + [status_message]
+request.tools = stable_tools
+response = call_model(request)
+```
 
 > **Thử nghiệm 2-1 ★: Gọi công cụ và triển khai dịch vụ LLM cục bộ**
 >
@@ -594,7 +613,7 @@ Các phương pháp làm giảm tải nhận thức cho con người cũng có h
 
 Ngược lại, lời nhắc theo quy trình giống như một sổ tay đào tạo nhân viên mới tốt, cung cấp các quy trình vận hành tiêu chuẩn rõ ràng (SOP):
 
-```
+```text
 File Processing Standard Operating Procedure:
 
 Step 1: Validation
@@ -729,47 +748,54 @@ Khi Agent bao gồm ngày càng nhiều kịch bản kinh doanh, các từ nhắ
 
 [^ch2-3]: Anthropic, "Equipping Agents for the Real World with Agent Skills" , 2025.
 
-**Lớp đầu tiên (siêu dữ liệu)**: Mỗi Kỹ năng phải chứa một tệp `SKILL.md`, bắt đầu bằng frontmatter YAML (nghĩa là khối siêu dữ liệu được phân tách bằng `---` ở đầu tệp, tương tự như trang bản quyền của một cuốn sách) và chứa hai trường: `name` và `description`. Khung Agent quét tất cả các Kỹ năng đã cài đặt khi khởi động và đưa `name` và `description` của chúng (chỉ chiếm hàng trăm mã thông báo) vào ngữ cảnh hội thoại (xem phần tiếp theo để biết sự cân bằng trong thiết kế ở các vị trí tiêm), cho phép Agent biết những khả năng chuyên nghiệp mà nó có mà không tốn nhiều ngữ cảnh.
+**Lớp đầu tiên (siêu dữ liệu)**: Mỗi Skill nên cung cấp một tệp `SKILL.md` bắt đầu bằng YAML frontmatter (khối siêu dữ liệu được phân tách bằng `---`) với hai trường `name` và `description`. Danh mục phải hiển thị cho Agent trước khi tải phần nội dung chính, để Agent có thể đánh giá một năng lực có liên quan hay không mà không phải trả toàn bộ chi phí ngữ cảnh của mọi Skill. Các runtime có thể đặt danh mục ở những lớp ngữ cảnh khác nhau; mục đích chung là khả năng khám phá, không phải mang toàn bộ quy trình của lĩnh vực.
 
-Trường `description` trong siêu dữ liệu là chìa khóa cho các quyết định định tuyến - trường này phải đủ ngắn (để kiểm soát số lượng mã thông báo thường trú), nhưng được viết giống như một điều kiện định tuyến hơn là một giới thiệu chức năng. Cách viết đơn giản nhất là "Sử dụng khi / Không sử dụng khi" cộng với một vài **phản ví dụ**(nghĩa là liệt kê rõ ràng các tình huống "Không nên kích hoạt Kỹ năng này"). Trong thực tế, các mô tả kỹ năng thiếu ví dụ mẫu sẽ làm giảm đáng kể độ chính xác của việc định tuyến—các mô tả rộng rãi sẽ thường xuyên gây ra các kích hoạt sai đối với các nhiệm vụ không liên quan; sau khi thêm các phản ví dụ, độ chính xác của việc định tuyến sẽ tăng lên đáng kể. Các phản ví dụ không phải là tùy chọn, nhưng là chìa khóa để xác định xem việc định tuyến Kỹ năng có thể được kích hoạt chính xác hay không. Mô tả quá rộng (chẳng hạn như "trợ giúp về phần phụ trợ") có nghĩa là mọi công việc liên quan đến phần phụ trợ đều có thể được kích hoạt và việc định tuyến sẽ không chính xác; mô tả thực sự hiệu quả là điều kiện định tuyến - "khi nào tôi nên được sử dụng" quan trọng hơn nhiều so với "tôi có thể làm gì".
+Trường `description` trong siêu dữ liệu rất quan trọng đối với định tuyến. Nó nên đủ ngắn để giới hạn số token luôn hiện diện, nhưng được viết như một điều kiện định tuyến thay vì bản tóm tắt tính năng. Có thể nêu ranh giới “Dùng khi / Không dùng khi” và một số **phản ví dụ** điển hình để giảm kích hoạt sai do khớp quá rộng. Đây là lời khuyên viết chỉ dẫn định tuyến, không phải một trường bắt buộc bổ sung. Mô tả như “trợ giúp về backend” có thể kích hoạt ở hầu hết mọi tác vụ backend; mô tả hiệu quả cho biết khi nào nên dùng Skill, không chỉ nói Skill làm được gì.
 
-**Cấp thứ hai (quy trình cốt lõi)**: Khi Agent xác định rằng một nhiệm vụ yêu cầu một Kỹ năng cụ thể, `SKILL.md` hoàn chỉnh sẽ được tải thông qua công cụ Kỹ năng chuyên dụng và nội dung xuất hiện trong lịch sử hội thoại dưới dạng kết quả của công cụ. Lấy Kỹ năng PPTX [^ch2-4] làm ví dụ, bao gồm quy trình xử lý tệp PowerPoint cốt lõi: cách trích xuất văn bản thông qua markitdown (công cụ chuyển đổi tài liệu nguồn mở Markdown của Microsoft), cách giải nén tệp PPTX để truy cập cấu trúc XML gốc và quy ước đường dẫn của các tệp chính.
+**Cấp thứ hai (quy trình cốt lõi)**: Khi Agent xác định nhiệm vụ cần một Skill cụ thể, runtime mới tải toàn bộ `SKILL.md`. Claude Code thêm chỉ dẫn của Skill dưới dạng user message tại điểm gọi; runtime khác có thể đọc tệp hoặc kích hoạt công cụ chuyên dụng rồi trả nội dung dưới dạng tool result. Ví dụ, PPTX Skill[^ch2-4] chứa quy trình cốt lõi để xử lý PowerPoint: trích xuất văn bản bằng markitdown, giải nén PPTX để truy cập cấu trúc XML gốc và các quy ước đường dẫn của tệp chính.
 
 [^ch2-4]: Anthropic, "PPTX Skill" , 2025. https://github.com/anthropics/skills/
 
+[^ch2-codex-skills]: OpenAI, “Build skills”, tài liệu Codex. https://developers.openai.com/codex/skills/
+
 **Cấp độ 3 (Bản in đẹp)**: Đi sâu vào các tài liệu phụ chi tiết hơn thông qua các tham chiếu tệp. Tài liệu chính tham khảo `html2pptx.md` (quy trình chi tiết để tạo PowerPoint từ mẫu HTML), `reference.md` (định dạng chi tiết kỹ thuật), v.v. Agent sẽ đọc chuyên sâu các tài liệu phụ có liên quan một cách có chọn lọc theo nhu cầu cụ thể.
 
-Các kỹ năng không chỉ chứa các tài liệu hướng dẫn mà còn có thể đi kèm với các công cụ mã thực thi và tệp mẫu - nâng cấp từ chuyển giao kiến thức thuần túy sang cấp khả năng thực tế.
+### Cách viết một Skill hữu dụng
+
+Cấu trúc runtime giải quyết “khi nào tải” và “tải bao nhiêu”; nội dung vẫn phải biến kinh nghiệm thành chỉ dẫn mà mô hình có thể thực thi. Một Skill hữu dụng cần nói cho thành viên mới biết nó áp dụng cho tác vụ nào, phải hành động theo thứ tự nào, khi nào cần dừng để xác nhận và kết quả nào được xem là hoàn tất.
+
+Theo hướng dẫn của Baoyu trong *Minh họa về Skill*[^ch2-baoyu-remove-ai-writing-flavor], có thể bắt đầu với bốn phần:
+
+- **Vai trò và người đọc**: Skill phục vụ ai, hướng đến tác vụ nào và đầu ra phải đạt tiêu chuẩn gì;
+- **Nguyên tắc cốt lõi**: ba đến năm phán đoán quan trọng, kèm ví dụ đúng và sai cho các nguyên tắc chính;
+- **Danh sách cấm**: lỗi thường gặp, hành động vượt phạm vi và cách diễn đạt dễ gây hiểu nhầm, cùng các ngoại lệ hợp lệ;
+- **Tài liệu tham khảo**: bảng thuật ngữ, mẫu, ví dụ và tài liệu con chi tiết. Nên viết quy tắc theo dạng “phạm vi + hành động + ngoại lệ + xác minh”, thay vì kéo dài danh sách từ cấm.
+
+Skill viết có thể bắt đầu từ ba đến năm bài viết tốt nhất của chính bạn. Yêu cầu Agent rút ra cách dùng từ, mẫu câu, cấu trúc đoạn và giọng điệu, tạo bản đầu ngắn, rồi áp dụng vào tác vụ thực tế và sửa từng câu. Khác biệt giữa bản gốc và bản sửa cung cấp nhiều thông tin hơn câu “hãy tự nhiên hơn”: nó cho thấy từ nào bị bỏ, câu dài nào được tách và chỗ nào cần bổ sung sự kiện. Đưa các sửa đổi lặp lại trở lại Skill, giữ lại ví dụ đúng, ví dụ sai và phạm vi của từng quy tắc.
+
+Skill cũng có thể đóng gói công cụ mã thực thi và tệp mẫu. Chẳng hạn, Skill thuyết trình có thể chứa mẫu slide và script phân tích tệp thuyết trình.
 
 Giá trị của Kỹ năng không chỉ nằm ở việc quản lý ngữ cảnh tinh tế mà còn ở việc cung cấp một lộ trình bền vững để tích lũy kiến thức về lĩnh vực. Mỗi Kỹ năng là một mô-đun kiến thức độc lập có thể được phát triển, thử nghiệm, phiên bản và chia sẻ một cách độc lập. Mô-đun này cho phép mở rộng các khả năng của Agent từ chỉnh sửa từ nhanh chóng của hệ thống tập trung đến xây dựng sinh thái Kỹ năng phân tán, hướng đến cộng đồng - tương tự sâu sắc với hệ thống quản lý gói của phần mềm nguồn mở (chẳng hạn như pip của Python, npm của Node.js). Mỗi Kỹ năng gói gọn các phương pháp hay nhất trong một lĩnh vực nhất định. Kho Kỹ năng chính thức của Anthropic bao gồm xử lý tài liệu (PPTX, PDF, DOCX), phân tích dữ liệu, tạo mã và các lĩnh vực khác. Nhà phát triển có thể trực tiếp sử dụng, tùy chỉnh hoặc tạo Kỹ năng mới.
 
-Điều này tiết lộ một nguyên tắc quan trọng đối với các nhà phát triển Agent: **Khi chọn chế độ tương tác Agent, bạn nên tuân thủ phương pháp đào tạo của nhà sản xuất mô hình**. Khi sử dụng Claude để xây dựng Agent, bạn nên tận dụng tối đa các Kỹ năng và lời nhắc hệ thống có cấu trúc; khi sử dụng các mô hình khác, bạn nên áp dụng các quy ước tương tác được nhà sản xuất mô hình tối ưu hóa đặc biệt. Việc sử dụng Agent do công ty mô hình cơ bản quảng bá về cơ bản là mô hình mà họ đã đào tạo đặc biệt, cho phép các mô hình trong cùng hệ sinh thái có được hiệu suất tối ưu một cách tự nhiên.
+Điều này cho thấy một nguyên tắc quan trọng: **khi chọn chế độ tương tác Agent, hãy căn chỉnh với phương pháp huấn luyện của nhà cung cấp mô hình**. Các mẫu sử dụng Agent mà công ty mô hình nền tảng khuyến nghị thường phản ánh những chế độ mà mô hình của họ được huấn luyện riêng để hỗ trợ.
 
-### Phương pháp thực hiện và đánh đổi Kỹ năng
+[^ch2-baoyu-remove-ai-writing-flavor]: Baoyu, “Đừng dùng prompt để loại bỏ ‘mùi AI’; hướng đi đó là sai”, 14-02-2026. https://baoyu.io/blog/2026-02-14/remove-ai-writing-flavor
 
-Bây giờ chúng ta đã hiểu Kỹ năng là gì, bước tiếp theo là một câu hỏi kỹ thuật cụ thể hơn: Nội dung Kỹ năng được đặt ở đâu trong ngữ cảnh? Đây là quyết định thiết kế cơ bản ảnh hưởng trực tiếp đến hiệu quả của KV Cache và sự tuân thủ lệnh của mô hình. Về lý thuyết, có hai giải pháp đơn giản nhưng cả hai đều có chi phí rõ ràng; triển khai sản xuất (chẳng hạn như Claude Code) sử dụng giải pháp thứ ba để tránh những điểm yếu của cả hai.
+### Vị trí của Skills trong ngữ cảnh
 
-**Phương pháp 1: Chèn các từ nhắc nhở của hệ thống (thông báo hệ thống)**. Nối trực tiếp nội dung Kỹ năng vào lời nhắc hệ thống. Model có khả năng làm theo hướng dẫn ở vị trí hệ thống mạnh nhất (vì hướng dẫn ở vị trí này được sử dụng nhiều trong quá trình huấn luyện) nên Skill có hiệu quả thực thi tốt nhất. Nhưng vấn đề là: mỗi khi nạp Kỹ năng mới, nội dung thông báo hệ thống sẽ bị thay đổi, khiến tiền tố KV Cache trở nên không hợp lệ. Nếu Agent thường xuyên chuyển đổi các kỹ năng (ví dụ: một nhiệm vụ trước tiên yêu cầu sử dụng kỹ năng tìm kiếm, sau đó sử dụng kỹ năng tài liệu), bộ nhớ đệm sẽ liên tục bị vô hiệu hóa, độ trễ và chi phí sẽ tăng lên đáng kể.
+Khi đánh giá chi phí ngữ cảnh của Skills, cần tách danh mục siêu dữ liệu khỏi chỉ dẫn Skill đầy đủ:
 
-**Cách 2: Đọc dưới dạng file thông thường, nội dung xuất hiện ở giữa ngữ cảnh**. Agent đọc tệp Kỹ năng thông qua một công cụ đọc tệp phổ quát và nội dung tệp xuất hiện trong lịch sử hội thoại dưới dạng kết quả của công cụ - tức là ở giữa ngữ cảnh. Phương pháp này hoàn toàn không ảnh hưởng đến KV Cache (lời nhắc hệ thống không thay đổi), nhưng nó đặt yêu cầu cao hơn về khả năng làm theo hướng dẫn của mô hình: mô hình cần xác định chính xác và làm theo hướng dẫn trong Kỹ năng ở giữa ngữ cảnh dài, thay vì coi nó như một đầu ra công cụ thông thường để "tham khảo". Trong thực tế, sự hỗ trợ của các kiểu máy khác nhau cho chế độ này rất khác nhau - Claude hoạt động đáng tin cậy nhất vì nó sử dụng một số lượng lớn lệnh ở giữa để theo dõi dữ liệu trong quá trình đào tạo; trong khi các mô hình khác có xu hướng bị xâm phạm khi làm theo hướng dẫn được đưa vào giữa ngữ cảnh.
+- **Nguyên tắc cấp tiêu chuẩn**: cơ chế quy định trình tự tải, không quy định vai trò thông điệp. Danh mục phải được khám phá trước phần thân, còn phần thân được tải theo yêu cầu sau khi chọn Skill. Vai trò, dạng bọc và việc dựng lại danh mục ở mỗi lượt là lựa chọn của Agent Harness.
+- **Claude Code về mặt khái niệm**: cung cấp một danh mục nhỏ như ngữ cảnh runtime và nối thêm chỉ dẫn đầy đủ tại điểm gọi Skill. “System prompt” có thể mô tả lớp chỉ dẫn ổn định về mặt logic, nhưng không có nghĩa mọi client đều dùng role API `system`.
+- **Codex về mặt khái niệm**: trong lúc dựng ngữ cảnh mỗi lượt, kết xuất danh mục Skills trong ngữ cảnh `developer`; Skill được chọn rõ ràng được tiêm dưới dạng ngữ cảnh `user` có dấu `<skill>`. Skills từ nguồn khác có thể được đọc theo yêu cầu qua công cụ.[^ch2-codex-skills]
 
-**Phương pháp ba (triển khai production): Siêu dữ liệu được cung cấp dưới dạng ngữ cảnh động, còn nội dung đầy đủ được tải theo yêu cầu bằng một công cụ chuyên dụng**. Ý tưởng cốt lõi của Claude Code là tách biệt việc "định tuyến" và "thực thi" Skill: trước tiên, mô hình nhận siêu dữ liệu của các Skill hiện có để xác định liệu tác vụ hiện tại có cần một Skill nào hay không; chỉ sau khi một Skill được chọn, mô hình mới tải toàn bộ `SKILL.md`. Thiết kế này cân bằng chi phí ngữ cảnh, khả năng tái sử dụng Prompt Cache và năng lực tuân thủ hướng dẫn.
-
-- **Danh sách siêu dữ liệu**—`name` + `description` của tất cả các Skill đã cài đặt (thường chỉ vài trăm token)—được cung cấp trước cho mô hình, giúp mô hình xác định những Skill nào liên quan đến tác vụ hiện tại. Điều quan trọng cần lưu ý là **vai trò thông điệp cụ thể dùng để chèn siêu dữ liệu này vào ngữ cảnh là chi tiết triển khai của Claude Code Agent Harness, chứ không phải yêu cầu cố định của chính cơ chế Agent Skills**. Trong một số phiên bản Claude Code trước đây, loại ngữ cảnh động này xuất hiện dưới dạng khối nội dung có role user được bọc trong `<system-reminder>`; ở các hướng triển khai mới hơn có hỗ trợ mid-conversation system messages, cũng có thể sử dụng một khối ngữ cảnh có role system được nối thêm. Dù dùng cách biểu diễn nào, mục tiêu chung vẫn là giúp mô hình nhận biết các Skills hiện có mà không phải liên tục viết lại tiền tố ngữ cảnh ổn định.
-
-- **Nội dung đầy đủ**—khi mô hình xác định từ siêu dữ liệu rằng một Skill phù hợp với tác vụ hiện tại, nó sẽ đọc `SKILL.md` tương ứng theo yêu cầu thông qua công cụ Skill, rồi đưa nội dung đó vào ngữ cảnh thực thi hiện tại. Nhờ vậy, hệ thống không phải tải toàn bộ hướng dẫn của mọi Skill ngay khi bắt đầu phiên và giảm lượng ngữ cảnh không liên quan.
-
-Vì vậy, cần phân biệt hai tầng: **"siêu dữ liệu Skill phải được cung cấp trước cho mô hình" là một thiết kế cơ chế tương đối ổn định, còn "sử dụng role user, role system hay dạng bọc như `<system-reminder>`" là cách triển khai phụ thuộc từng phiên bản.** `<system-reminder>` cũng không phải định dạng giao thức dành riêng cho Agent Skills, mà là một cách biểu diễn được Claude Code Agent Harness dùng để chèn ngữ cảnh hệ thống động.
-
-Thiết kế hai tầng—một danh mục nhỏ luôn hiện diện và nội dung đầy đủ chỉ được tải khi cần—chính là chìa khóa giúp Skills vừa dễ được phát hiện vừa tiết kiệm context.
-
-Để cảm nhận trực quan hiệu quả của thiết kế này, hai hình ảnh sau đây theo dõi vị trí của Kỹ năng trong trajectory và sự phát triển của KV Cache từ hai góc độ tương ứng.
+Agent Harness thay đổi nhanh nên biểu diễn cụ thể có thể khác đi. Nguyên tắc ổn định là **giữ một danh mục nhỏ có thể khám phá và tải phần thân đầy đủ khi cần**. Hai hình dưới đây theo dõi vị trí của Skills trong trajectory và sự phát triển của KV Cache.
 
 ![Hình 2-12 Cấu trúc hoàn chỉnh của Trajectory đặc vụ sau khi kích hoạt Kỹ năng ](images/fig2-12.svg){height=55%}
 
 ![Hình 2-13 Sự phát triển của KV Cache với sự phát triển của Trajectory tác nhân ](images/fig2-13.svg)
 
-Một sự hiểu lầm phổ biến cần được làm rõ: "KV Cache thân thiện" không có nghĩa là "chi phí bằng 0" - hàng trăm đến hàng nghìn mã thông báo được phát ra lần đầu tiên cuối cùng sẽ phải trả phí ghi (như đã đề cập ở trên, việc ghi vào bộ nhớ đệm của Nhắc Cache vẫn bị tính phí). Ý nghĩa chính xác của nó là **ghi một lần, lợi ích vĩnh viễn**: để mô hình biết sự tồn tại của một kỹ năng nhất định hoặc nội dung của một tài liệu nhất định, nó phải được lưu vào bộ nhớ đệm ít nhất một lần; những gì Claude Code làm là chỉ thanh toán lần này và sau đó toàn bộ phiên sẽ không lặp lại. Giải pháp so sánh - nhồi thông tin tương tự vào lời nhắc hệ thống - mọi bản cập nhật sẽ làm mất hiệu lực toàn bộ trajectory xuôi dòng và nhập cache_creation (thứ tự độ lớn là hàng chục nghìn đến hàng trăm nghìn mã thông báo), điều này thực sự không thân thiện.
+Một hiểu lầm phổ biến cần được làm rõ: “thân thiện với KV Cache” không có nghĩa là “chi phí bằng không”. Danh mục phải được xử lý lần đầu khi đi vào request, còn lần tải đầu tiên của phần thân Skill tạo thêm tính toán; các request sau có thể tái sử dụng cache khi prefix đã thiết lập vẫn ổn định. Các Harness dựng lại danh mục theo cách khác nhau, nhưng lợi ích chung là không cần tải trước toàn bộ phần thân Skill và không phải viết lại ngữ cảnh đã hình thành khi gọi Skill mới.
 
 ### Mối quan hệ giữa Kỹ năng và công cụ
 
@@ -794,7 +820,7 @@ Xét về quản lý context, cơ chế Skills rất thân thiện với KV Cach
 
 ![Hình 2-14 Cấu trúc thanh trạng thái tác nhân ](images/fig2-14.svg)
 
-Trong phần trước, chúng tôi đã đề cập đến phương pháp 3 của Kỹ năng: "Thông báo meta user-role ở cuối ngữ cảnh" là một kênh đưa siêu thông tin chung - danh sách siêu dữ liệu Kỹ năng chỉ là một trong các tình huống sử dụng của nó. Phần này sẽ mở rộng kênh này một cách có hệ thống: đó là một cơ chế thống nhất để khung Agent đồng bộ hóa các trạng thái động khác nhau với mô hình, được gọi là **Thanh trạng thái Agent (Thanh trạng thái Agent)**.
+Phần trước tập trung vào những khả năng mà Skills cung cấp theo yêu cầu. Phần này giải quyết vấn đề riêng: làm sao để mô hình luôn thấy tiến độ nhiệm vụ, thay đổi môi trường và số lần gọi công cụ. Khung Agent đóng gói thông tin động thành trạng thái có cấu trúc rồi tiêm vào ngữ cảnh; cơ chế này gọi là **Thanh trạng thái Agent (Agent Status Bar)**.
 
 Dự án gợi ý được thảo luận trước đó giải quyết vấn đề "cung cấp những hướng dẫn tĩnh nào cho mô hình". Nhưng trong quá trình thực thi thực tế, Agent cũng cần tự động nhận biết trạng thái của chính nó và tiến trình nhiệm vụ - đây là lúc thanh trạng thái Agent xuất hiện.
 
@@ -876,7 +902,7 @@ Một chi tiết triển khai quan trọng là: thanh trạng thái Agent ở c�
 
 Sau đây là danh sách các thông báo thực sự được xây dựng bởi khung Agent trong lệnh gọi API thứ N:
 
-```
+```text
 messages: [
   { role: "system",    content: "You are a customer service assistant..." }  ← Fixed (KV Cache cached)
   { role: "user",      content: "Help me cancel my Xfinity plan" }  ← Original user request
@@ -903,11 +929,13 @@ Thiết kế này chính xác là ứng dụng nguyên tắc "thông tin động
 
 "Nối thêm không phá hủy bộ đệm" chỉ đúng với một lần tiêm. Trạng thái sẽ thay đổi - vòng TODO tiếp theo đã hoàn thành, số lượng công cụ được tăng lên một lần và thông báo trạng thái đã lỗi thời. Cách cập nhật nó, có hai cách triển khai, mỗi cách triển khai có chi phí lưu vào bộ nhớ đệm rõ ràng:
 
-**Thực hiện 1: Thay thế mỗi vòng**. Trước mỗi cuộc gọi API, hãy xóa vòng thông báo trạng thái trước đó khỏi danh sách tin nhắn và thêm trạng thái mới nhất vào cuối. Điều này đảm bảo rằng chỉ có một bản sao của trạng thái trong ngữ cảnh, trạng thái này luôn được cập nhật. Nhưng cái giá phải trả là: việc loại bỏ trạng thái cũ sẽ vô hiệu hóa tất cả các bộ đệm sau vị trí của nó - đây là cơ chế vô hiệu hóa tương tự như "dấu thời gian động" được chỉ trích trong chương này, điểm khác biệt duy nhất là thông báo trạng thái nằm ở cuối ngữ cảnh và phạm vi vô hiệu hóa được giới hạn ở các vòng thông báo gần đây nhất, thay vì toàn bộ tiền tố.
+**Thực hiện 1: Thay thế mỗi vòng**. Trước mỗi cuộc gọi API, hãy xóa vòng thông báo trạng thái trước đó khỏi danh sách tin nhắn và thêm trạng thái mới nhất vào cuối. Điều này đảm bảo rằng chỉ có một bản sao của trạng thái trong ngữ cảnh, trạng thái này luôn được cập nhật. Nhưng cái giá phải trả là: việc loại bỏ trạng thái cũ sẽ vô hiệu hóa tất cả các bộ đệm sau vị trí của nó - đây là cơ chế vô hiệu hóa tương tự như "dấu thời gian động" được chỉ trích trong chương này. Vì thông báo trạng thái nằm ở cuối ngữ cảnh, phạm vi vô hiệu hóa chỉ gồm các thông điệp được thêm kể từ lần chèn trạng thái trước—thường là một vòng—thay vì toàn bộ tiền tố.
 
 **Thực hiện 2: Nối thêm liên tục**. Sau khi được đưa vào, các thông báo trạng thái vẫn tồn tại vĩnh viễn trong trajectory, với các trạng thái mới chỉ được thêm vào cuối mỗi vòng. `<system-reminder>` của Claude Code áp dụng phương pháp này - các thông báo trạng thái lịch sử được giữ lại trong bản ghi phiên (bản ghi) và không bao giờ bị xóa. Phương pháp này hoàn toàn thân thiện với bộ đệm: tất cả các tin nhắn chỉ được thêm vào và không được sửa đổi, đồng thời tiền tố luôn ổn định. Cái giá phải trả là các trạng thái cũ sẽ tích lũy trong ngữ cảnh - không chỉ chiếm giữ mã thông báo mà còn yêu cầu bản thân mô hình phải tập trung vào trạng thái "mới nhất" và bỏ qua các trạng thái cũ lỗi thời.
 
-Nguyên tắc nhỏ để đánh đổi là: **Khi cập nhật trạng thái thường xuyên và trajectory dài, hãy chọn triển khai** - tình trạng vô hiệu hóa bộ đệm do mỗi vòng thay thế gây ra sẽ được tích lũy nhiều lần trên trajectory dài và chi phí cao hơn nhiều so với mã thông báo do trạng thái cũ chiếm giữ; **Khi trajectory ngắn hoặc một thông báo trạng thái lớn**(chẳng hạn như danh sách TODO hoàn chỉnh cộng với ảnh chụp nhanh môi trường) **, hãy chọn triển khai** - việc vô hiệu hóa bộ đệm trong một vài vòng cuối cùng vốn dĩ rẻ, đổi lại ngữ cảnh rõ ràng và rõ ràng.
+Việc lựa chọn phụ thuộc vào độ dài trajectory, kích thước trạng thái, độ dài hậu tố được thêm giữa các lần cập nhật và số lần cập nhật dự kiến. **Chọn cách 2 khi trạng thái nhỏ, nhiều thông điệp được tạo giữa các lần cập nhật và độ dài phiên được giới hạn**—giữ lại trạng thái cũ thường rẻ hơn việc liên tục tính toán lại một hậu tố dài. **Chọn cách 1 khi trạng thái lớn, cập nhật thường xuyên hoặc trajectory dài**—cách này thường chỉ vô hiệu hóa hậu tố ngắn sau lần chèn trước và ngăn trạng thái cũ tích lũy.
+
+Một mô hình gần đúng cho biết điểm hòa vốn. Gọi $S$ là số token trong mỗi trạng thái, $R$ là số token được thêm giữa các lần cập nhật, $N$ là số lần cập nhật dự kiến và $\alpha$ là tỷ lệ chi phí đầu vào được lưu trong bộ đệm so với đầu vào thông thường. Bỏ qua các chi phí chung của hai cách, $C_{\text{thay thế}} \approx (N-1)(1-\alpha)R$ và $C_{\text{nối thêm}} \approx \alpha S N(N-1)/2$. Vì vậy, chọn cách 2 khi $\alpha SN/2 < (1-\alpha)R$; nếu không, chọn cách 1. Ước tính này chưa tính phần ngữ cảnh bị chiếm dụng và sự mơ hồ từ các trạng thái cũ, nên quyết định cuối cùng cũng cần xét giá bộ đệm của nhà cung cấp và tỷ lệ hit đo được.
 
 > **Thử nghiệm 2-8 ★★: Một số công nghệ thanh trạng thái Agent hữu ích**
 >

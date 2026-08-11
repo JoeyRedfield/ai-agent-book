@@ -82,7 +82,7 @@
 
 以一個查天氣的場景為例，四步流程在 API 層面的簡化表示如下：
 
-```
+```text
 第一步：宣告工具                    第二步：模型決定呼叫
 tools: [{                          assistant: {
   name: "get_weather",               tool_calls: [{
@@ -168,9 +168,30 @@ Agent 執行任務的核心模式叫做 **ReAct**（Reasoning + Acting）。雖�
 
 ![圖 1-4 Agent 軌跡——多幣種彙總任務的 ReAct 迴圈](images/fig1-4.svg)
 
+以下 Python 風格的骨架是解釋用的偽代碼，不是可直接執行的 SDK 程式碼；`python` 標記只用於語法高亮。
+
+**ReAct 控制迴圈:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 讓我們透過虛擬碼來理解 Agent 軌跡的結構：
 
-```
+```text
 軌跡 = [
   {role: "user" , content: "根據公司季度收入：Q1 2.5M 美元，Q2 2.1M 歐元，Q3 1.8M 英鎊，Q4 380M 日元，計算公司年度總收入和季度平均收入" },
   
@@ -256,6 +277,20 @@ Agent 執行任務的核心模式叫做 **ReAct**（Reasoning + Acting）。雖�
 > **Harness = 上下文管理 + 工具介面 + 約束 + 驗證 + 糾正**
 >
 > **Agent ↔ Environment**
+
+**Harness 生產邊界:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 最小可工作的 Agent 只需要 LLM、上下文與工具就能跑起來；而要讓它在生產環境中長期可靠運轉，還需要補全約束、驗證、糾正這三層工程外殼——約束防止越界、驗證發現錯誤、糾正恢復異常。換句話說，最小公式是 Demo 視角，擴展公式是生產視角；後者完全包含前者，並在外圍加了一圈安全網。
 

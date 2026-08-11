@@ -20,7 +20,7 @@
 
 இந்த செயல்முறையை ஒரு உறுதியான உதாரணத்துடன் புரிந்து கொள்வோம். ஒரு பயனரும் ஏஜெண்டும் பின்வரும் உரையாடலை நடத்துகிறார்கள் என்று வைத்துக் கொள்வோம்:
 
-```
+```text
 பயனர்: அடுத்த வெள்ளிக்கிழமை டோக்கியோவுக்கு ஒரு விமானத்தை முன்பதிவு செய்ய உதவுங்கள். நான் ஜன்னல் ஓர இருக்கையை விரும்புகிறேன்
         மற்றும் நான் சைவ உணவு உண்பவர், எனவே எனக்கு ஒரு சிறப்பு உணவு தேவைப்படும்.
 ஏஜெண்ட்: அடுத்த வெள்ளிக்கிழமை டோக்கியோவுக்கான விமானங்களைத் தேடுகிறேன்...
@@ -31,12 +31,27 @@ User: ஆம், எனது United MileagePlus எண் 12345678 ஐப் �
 
 இந்த உரையாடல் முடிந்ததும், Agent கட்டமைப்பு, உரையாடலை பகுப்பாய்வு செய்து நீண்ட காலத்திற்கு நினைவில் வைத்துக் கொள்ளத் தகுந்த தகவல்களைப் பிரித்தெடுக்க, ஒரு பிரத்யேக LLM ஐ அழைக்கிறது:
 
-```
+```text
 பிரித்தெடுக்கப்பட்ட நினைவுகள்:
 - பயனர் சாளர இருக்கைகளை விரும்புகிறார் (விருப்பம்)
 - பயனர் சைவ உணவு உண்பவர், விமானங்களில் சிறப்பு உணவு தேவை (உணவுக் கட்டுப்பாடு)
 - பயனரின் United MileagePlus எண்: 12345678 (விசுவாசத் திட்டம்)
 - பயனருக்கு டோக்கியோ பயணத் திட்டங்கள் உள்ளன (சமீபத்திய செயல்பாடு)
+```
+
+**நினைவக வாழ்க்கைச் சுழற்சி:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 இந்தப் பிரித்தெடுக்கும் செயல்முறையின் சில முக்கிய பண்புகளைக் கவனியுங்கள்:
@@ -124,50 +139,74 @@ Agent தற்போதைய பணிகளை திறமையாக க�
 
 கீழே ஒரு எளிமைப்படுத்தப்பட்ட எடுத்துக்காட்டு உள்ளது. கட்டமைப்பு கட்டம் பயனரின் பாஸ்போர்ட் மற்றும் பயணங்களை தட்டச்சு செய்யப்பட்ட நிலையாக சேமிக்கிறது:
 
-```python
-from datetime import date
+**Append-only பதிவு மற்றும் checkpoint:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... மீதமுள்ள பயணங்கள்
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**வகைப்படுத்தப்பட்ட பயனர் நிலை:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 தட்டச்சு செய்யப்பட்ட நிலையுடன், முன்பு LLM "உரையைப் படித்து மனக் கணக்கு செய்ய" தேவைப்பட்ட மூன்று பணிகள் இப்போது உறுதியான குறியீடாக மாறுகின்றன:
 
 முதலில், **தொகுப்புப் புள்ளிவிவரங்கள்**. "2025-இல் நான் எத்தனை முறை வெளிநாடு சென்றேன்?" என்ற கேள்விக்கு, உரை நினைவகம் அனைத்து பயணங்களையும் மீட்டெடுத்து ஒவ்வொன்றாக எண்ண வேண்டும்; பதிவுகள் அதிகரிக்கும்போது பிழை ஏற்படுவது எளிது. User as Code-இல் இது ஒரே வெளிப்பாடு; துல்லியம் கிட்டத்தட்ட 100%[^uac]:
 
+**தீர்மானகமான திரட்டல்:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 இரண்டாவதாக, **முரண்பாடு கண்டறிதல்**. "தற்போதைய மருந்துகள்" மற்றும் "ஒவ்வாமை வரலாறு" ஆகியவற்றை அருகருகே வைப்பதன் மூலம், ஒரு ஒற்றைச் செயல்பாடு அவற்றை மருந்து வகுப்பின் அடிப்படையில் குறுக்கு-குறிப்பிட முடியும், இது வெவ்வேறு உரையாடல்களில் சிதறிக்கிடக்கும் முரண்பாடுகளை வெளிப்படுத்துகிறது, அவற்றை உரை வடிவில் தானாக இணைப்பது கிட்டத்தட்ட சாத்தியமற்றது:
 
+**முரண்பாடு கண்டறிதல்:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"மருந்து முரண்பாடு: {med.name} என்பது {med.drug_class} வகுப்பைச் சேர்ந்தது, "
-                       f"ஆனால் நோயாளிக்கு {allergy.allergen} மீது கடுமையான ஒவ்வாமை உள்ளது")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 மூன்றாவதாக, **கட்டுப்பாடு அமலாக்கம்**. ஏஜெண்ட் இத்தகைய சரிபார்ப்புச் செயல்பாடுகளை உறுதிப்படுத்தி, நிலை புதுப்பிக்கப்படும் ஒவ்வொரு முறையும் அவற்றை தானாகவே தூண்ட முடியும்—பயனர் பேச வேண்டிய அவசியமில்லை அல்லது ஏஜெண்ட் எதையும் மீட்டெடுக்க வேண்டிய அவசியமில்லை. உதாரணமாக, பாஸ்போர்ட் செல்லுபடியாகும் கட்டுப்பாடு: சர்வதேச பயணத்தின் புறப்படும் தேதி பாஸ்போர்ட் காலாவதியாவதற்கு 180 நாட்களுக்குள் இருந்தால் எச்சரிக்கை செய்யவும்.
 
+**கட்டுப்பாடுகளை அமல்படுத்தல்:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"பாஸ்போர்ட் {passport.expiry_date} அன்று காலாவதியாகிறது, "
-                       f"{trip.destination} பயணத்திற்கு {days} நாட்கள் மட்டுமே உள்ளன. தயவுசெய்து விரைவில் புதுப்பிக்கவும்.")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: பயனர் நினைவகத்தை இயங்கக்கூடிய குறியீடு திட்டமாக உருவாக்குவதற்கான முழுமையான வடிவமைப்பு மற்றும் மதிப்பீட்டை Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026 இல் காணலாம்.
@@ -287,6 +326,22 @@ answer = llm.generate(system="You are a customer service assistant.", context=re
 இரண்டு எடுத்துக்காட்டுகளிலும் உள்ள முறை ஒரே மாதிரியானது: **தொடர்புடைய பகுதிகளை மீட்டெடுக்கவும் → சூழலில் செலுத்தவும் → LLM சூழலின் அடிப்படையில் பதிலை உருவாக்குகிறது**. RAG-இன் மைய மதிப்பு, பயிற்சியின் போது LLM பார்க்காத அறிவை (சமீபத்திய விக்கிபீடியா உள்ளடக்கம், ஒரு நிறுவனத்தின் உள் ஆவணங்கள்) மாதிரியை மீண்டும் பயிற்றுவிக்காமல் (retrain) பயன்படுத்த உதவுவதாகும்.
 
 மீட்டெடுப்பியின் தரம் நேரடியாக RAG-ன் செயல்திறனைத் தீர்மானிக்கிறது—அது பொருத்தமான பகுதிகளை மீட்டெடுக்க முடியாவிட்டால், வலிமையான LLM கூட வேலை செய்ய எதுவும் இருக்காது. இந்தப் பகுதி முதலில் ஆவணங்களை அறிவுத் தளத்தில் சேர்ப்பதற்கான முதல் படியான—துண்டாக்குதலைப் (chunking) பார்க்கிறது, பின்னர் மீட்டெடுப்பிகளுக்கான இரண்டு முக்கிய தொழில்நுட்ப அணுகுமுறைகளில் கவனம் செலுத்துகிறது: அடர்த்தியான உட்பொதிப்புகள் (dense embeddings, சொற்பொருள் புரிதலை அடிப்படையாகக் கொண்டவை) மற்றும் அரிதான உட்பொதிப்புகள் (sparse embeddings, முக்கியச் சொல் பொருத்தத்தை அடிப்படையாகக் கொண்டவை), மற்றும் அவற்றை எவ்வாறு இணைப்பது என்பதையும் பார்க்கிறது.
+
+**கலப்பு RAG pipeline:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![படம் 3-5: RAG வினவல் ஓட்டம்: மீட்டெடுப்பு, விரிவாக்கம் மற்றும் உருவாக்கம்](images/fig3-5.svg)
 
@@ -497,7 +552,7 @@ GraphRAG முதலில் உரையிலிருந்து முக
 
 RAPTOR மற்றும் GraphRAG ஆகியவை அறிவு அமைப்பின் கல்விசார் ஆய்வுகளைப் பிரதிநிதித்துவப்படுத்துகின்றன, அதே நேரத்தில் ByteDance-ன் Volcano Engine [OpenViking](https://github.com/volcengine/OpenViking) ஐ திறந்த மூலமாக வெளியிட்டது, இது மூன்றாவது தத்துவத்தை முன்மொழிகிறது: **கோப்பு முறைமை முன்னுதாரணம்**. இது சூழலை தட்டையான திசையன் துண்டுகளாக அல்லது வரைபட முனைகளாக கருதவில்லை. மாறாக, இது அனைத்து சூழல்களையும்—நினைவுகள், வளங்கள், திறன்கள்—ஒரு மெய்நிகர் கோப்பு முறைமைக்குள் உள்ள அடைவுகள் மற்றும் கோப்புகளாக வரைபடமாக்குகிறது, ஒவ்வொன்றும் ஒரு தனித்துவமான URI-ஐக் கொண்டுள்ளது:
 
-```
+```text
 viking://
 ├── resources/          # வெளிப்புற அறிவு: ஆவணங்கள், குறியீட்டுத் தளங்கள், வலைப்பக்கங்கள்
 ├── user/memories/      # பயனர் நினைவுகள்: விருப்பத்தேர்வுகள், பழக்கங்கள்

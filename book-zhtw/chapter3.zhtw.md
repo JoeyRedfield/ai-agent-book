@@ -20,7 +20,7 @@
 
 用一個具體的例子來理解這個過程。假設使用者和 Agent 有以下對話：
 
-```
+```text
 User: Help me book a flight to Tokyo next Friday. I prefer window seats
       and I'm vegetarian, so I'll need a special meal.
 Agent: I'll search for flights to Tokyo for next Friday...
@@ -32,12 +32,27 @@ User: Yes, and use my United MileagePlus number 12345678.
 
 這段對話結束後，Agent 框架會呼叫一次專門的 LLM 來分析對話內容，提取出值得長期記住的資訊：
 
-```
+```text
 Extracted memories:
 - User prefers window seats (preference)
 - User is vegetarian, needs special meals on flights (dietary restriction)
 - User's United MileagePlus number: 12345678 (loyalty program)
 - User has travel plans to Tokyo (recent activity)
+```
+
+**記憶生命週期:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 注意這個提取過程的幾個關鍵特徵：
@@ -127,50 +142,74 @@ Extracted memories:
 
 下面是簡化的例子。結構化階段把使用者的護照和行程存成帶型別的狀態：
 
-```python
-from datetime import date
+**只增日誌與檢查點:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... 其餘行程
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**型別化使用者狀態:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 有了帶型別的狀態，此前只能靠 LLM「讀一遍文字再心算」的三件事，現在都變成了確定性的程式碼：
 
 其一，**聚合統計**。「我去年出了幾次國？」——在文字記憶裡要把所有行程召回再逐條數，記錄一多就容易出錯；而在 User as Code 裡就是一行表示式，正確率接近 100%[^uac]：
 
+**確定性聚合:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 其二，**衝突發現**。把「當前用藥」和「過敏史」兩份狀態放在一起，一個函式就能按藥物類別交叉比對，揪出散落在不同對話裡、文字形式下幾乎不可能自動關聯的矛盾：
 
+**衝突偵測:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"用藥衝突：{med.name} 屬於 {med.drug_class} 類，"
-                       f"而患者對 {allergy.allergen} 嚴重過敏")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 其三，**約束執行**。Agent 可以把這樣的檢查函式固化下來，在狀態每次更新時自動觸發——不需要使用者開口、也不需要檢索，就能主動提醒。比如一條護照有效期約束：出國行程的出發日距護照到期不足 180 天就報警。
 
+**約束執行:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"護照 {passport.expiry_date} 到期，距 {trip.destination} "
-                       f"行程僅剩 {days} 天，請儘快續辦")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: 把使用者記憶建成可執行程式碼工程的完整設計與評測見 Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -295,8 +334,23 @@ answer = llm.generate(system="你是客服助手。", context=results, question=
 
 兩個例子的模式完全一致：**檢索相關片段 → 注入上下文 → LLM 基於上下文生成答案**。RAG 的核心價值在於讓 LLM 能利用它訓練時沒見過的知識（維基百科的最新內容、公司的內部文件），而不需要重新訓練模型。
 
-檢索器的質量直接決定了 RAG 的效果——如果檢索不到相關片段，LLM 再強也無米之炊。本節先看文件進入知識庫的第一道工序——分塊，再重點看檢索器的兩大技術路線：稠密嵌入（基於語義理解）和稀疏嵌入（基於關鍵詞匹配），以及如何把二者結合起來。
+檢索器的質量直接決定了 RAG 的效果——如果檢索不到相關片段，LLM 再強也難為無米之炊。本節先看文件進入知識庫的第一道工序——分塊，再重點看檢索器的兩大技術路線：稠密嵌入（基於語義理解）和稀疏嵌入（基於關鍵詞匹配），以及如何把二者結合起來。
 
+**混合 RAG 流程:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![圖 3-5 RAG 查詢流程：檢索、增強與生成](images/fig3-5.svg)
 
@@ -515,7 +569,7 @@ GraphRAG 先利用 LLM 從文字中提取關鍵實體（人物、地點、概念
 
 RAPTOR 和 GraphRAG 代表了學術界對知識組織的探索，而字節跳動火山引擎開源的 [OpenViking](https://github.com/volcengine/OpenViking) 則提出了第三種哲學：**檔案系統範式**。它不將上下文視為扁平的向量碎片或圖譜節點，而是將所有上下文——記憶、資源、技能——對映為虛擬檔案系統中的目錄和檔案，每個條目擁有唯一 URI：
 
-```
+```text
 viking://
 ├── resources/          # 外部知識：文件、程式碼庫、網頁
 ├── user/memories/      # 使用者記憶：偏好、習慣

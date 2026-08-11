@@ -20,11 +20,11 @@ Bu, en temel mimari karardır ve birden fazla Agent arasında bilginin nasıl ak
 
 Agent'lar context paylaşmadığı için bilginin açık iletişim mekanizmalarıyla aktarılması zorunludur. Bu sorunun yanıtı klasik dağıtık sistemlerde çoktan verilmişti: işletim sistemi ders kitapları bize süreçler arası iletişimin (IPC) nihayetinde yalnızca iki paradigmadan ibaret olduğunu söyler — **paylaşılan bellek** (bir taraf yazar, diğer taraf aynı depolama bloğunu okur) ve **mesaj geçirme** (veri açıkça karşı tarafa gönderilir). Agent'lar arası iletişim mekanizmaları da bu iki paradigmanın içine düşer; yaygın olarak üç tanesi görülür:
 
-- **Araç çağrısının parametreleri**: Yukarı akıştaki Agent yapılandırılmış veriyi, aşağı akıştaki Agent'ın aracına parametre olarak geçirir; tipi kesin, yapısı net veri gerektiren senaryolara uygundur;
+- **Araç çağrısının parametreleri**: Aşağı akıştaki Agent bir araç olarak sarılır; yukarı akıştaki Agent yapılandırılmış veriyi bu aracın parametreleriyle geçirir. Tipi kesin, yapısı net veri gerektiren senaryolara uygundur;
 - **Paylaşılan dosya sistemi**: Agent'lar paylaşılan bir dizindeki doküman, kod gibi ara ürünleri okuyup yazarak bilgi alışverişi yapar; ürünlerin büyük olduğu ya da kalıcılık gereken senaryolara uygundur;
 - **Message bus (mesaj veri yolu)**: Agent'lar arasında mesaj taşımakla özel olarak görevlendirilmiş bir aktarma istasyonudur; Agent'lar birbirini doğrudan çağırmaz, mesajı message bus'a gönderir, o da mesajı hedef Agent'a iletir.
 
-IPC'nin iki paradigmasına karşılık gelecek şekilde: paylaşılan dosya sistemi Agent dünyasının "paylaşılan belleği"dir; araç çağrısı parametreleri ile message bus ise "mesaj geçirme"nin iki biçimidir — ilki çağrıyla birlikte senkron olarak iletilir, ikincisi aktarma istasyonu üzerinden asenkron olarak teslim edilir. İki paradigmanın da kendi ödünleşimleri vardır. Go dilinin çok bilinen bir sözü vardır: "Belleği paylaşarak iletişim kurmayın; iletişim kurarak belleği paylaşın" — paylaşılan bellek hızlıdır, ama eşzamanlılık çakışması riskini kullanıcısına bırakır; mesaj geçirme daha fazla orkestrasyon kodu yazmayı gerektirir, ama verinin kime ait olduğunu izlenebilir kılar. Bu ödünleşim, ilerideki durum sorgulama ve eşzamanlılık çakışması konularında tekrar tekrar karşımıza çıkacak.
+IPC'nin iki paradigmasına karşılık gelecek şekilde: paylaşılan dosya sistemi Agent dünyasının "paylaşılan belleği"dir; araç çağrısı parametreleri ile message bus ise "mesaj geçirme"nin iki biçimidir — ilki çağrıyla birlikte senkron olarak iletilir, ikincisi aktarma istasyonu üzerinden asenkron olarak teslim edilir. İki paradigmanın da kendi ödünleşimleri vardır. Go dilinin çok bilinen bir sözü vardır: "Belleği paylaşarak iletişim kurmayın; iletişim kurarak belleği paylaşın"。
 
 Message bus doğası gereği **asenkron iletişimi** destekler — gönderen ve alan tarafın aynı anda çevrimiçi olması gerekmez; tıpkı şirket içi e-posta sistemi gibi: bir iş arkadaşınıza e-posta gönderdiğinizde onun o anda bilgisayarının başında olması gerekmez, e-posta önce sunucuda durur, iş arkadaşınız çevrimiçi olunca işler. Bu yaklaşım özellikle birden fazla Agent'ın paralel çalıştığı ve birbiriyle koordine olması gereken senaryolara uygundur (bu bölümdeki "paralel koordinasyon" kısmına bakın).
 
@@ -54,7 +54,7 @@ Tablo 10-1 Paylaşılan Context ile Paylaşılmayan Context Arasındaki Seçim �
 
 ### Boyut İki: İş Birliği Topolojisi
 
-İkinci boyut iş birliği topolojisidir — Agent'lar arasında kontrolün ve bilginin hangi yapı üzerinden aktığı. İş birliği topolojisi ile context'in paylaşılıp paylaşılmaması **kavramsal olarak bağımsız, pratikte ilişkilidir**: kavramsal olarak bağımsızdır, çünkü context paylaşan sistemlerin de bir topolojisi vardır; örneğin bu bölümde ileride tanıtılan `transfer_to_agent` (Deney 10-2) özünde zincirleme devrin (handoff) paylaşılan context altındaki biçimidir. Pratikte ilişkilidir, çünkü context bir kez paylaşıldığında topoloji çoğunlukla yozlaşır (aşağıya bakın) ve iki boyutun değerleri istenildiği gibi birleştirilemez. Yalnız şu var ki context paylaşıldığında devrin "ne aktarılacağına" karar vermesi gerekmez — eksiksiz geçmiş zaten korunur — bu yüzden topoloji genellikle bir rol değiştirme dizisine yozlaşır ve yapılacak fazla mimari karar kalmaz (ikisinin arasında duran bir istisna, group chat tarzı çok taraflı iş birliğidir; bu bölümün ilerideki merkezsizlik kısmına bakın). Context paylaşılmadığı anda ise "bilginin nasıl akacağı, koordinasyonu kimin yapacağı" açıkça tasarlanması gereken bir soruna dönüşür.
+İkinci boyut iş birliği topolojisidir — Agent'lar arasında kontrolün ve bilginin hangi yapı üzerinden aktığı. İş birliği topolojisi ile context'in paylaşılıp paylaşılmaması **kavramsal olarak bağımsız, pratikte ilişkilidir**: kavramsal olarak bağımsızdır, çünkü context paylaşan sistemlerin de bir topolojisi vardır; örneğin bu bölümde ileride tanıtılan `transfer_to_agent` (Deney 10-1) özünde zincirleme devrin (handoff) paylaşılan context altındaki biçimidir. Pratikte ilişkilidir, çünkü context bir kez paylaşıldığında topoloji çoğunlukla yozlaşır (aşağıya bakın) ve iki boyutun değerleri istenildiği gibi birleştirilemez. Yalnız şu var ki context paylaşıldığında devrin "ne aktarılacağına" karar vermesi gerekmez — eksiksiz geçmiş zaten korunur — bu yüzden topoloji genellikle bir rol değiştirme dizisine yozlaşır ve yapılacak fazla mimari karar kalmaz (ikisinin arasında duran bir istisna, group chat tarzı çok taraflı iş birliğidir; bu bölümün ilerideki merkezsizlik kısmına bakın). Context paylaşılmadığı anda ise "bilginin nasıl akacağı, koordinasyonu kimin yapacağı" açıkça tasarlanması gereken bir soruna dönüşür.
 
 > **Terminoloji notu: Graph Engineering.** Temmuz 2026'da yaygınlaşan “Graph Engineering” terimi, günümüz Agent bağlamında genellikle açık bir execution graph tasarlamayı ifade eder: node'lar Agent'lar, sıradan programlar veya insan kararlarıdır; edge'ler görev bağımlılıklarını, koşullu yönlendirmeyi ve başarısızlık yollarını tanımlar; yapılandırılmış state ise node'lar arasında akar.[^ch10-graph-engineering] Bu bölümde tartışılan “iş birliği topolojisi”, bu fikrin multi-agent alt kümesidir—eşler arası iş birliği, yönetici orkestrasyonu ve merkezsiz handoff'lar farklı graph topolojileridir. Ad henüz yeni olduğu ve bilgi grafları, GraphRAG ve execution trace'lerle kolayca karıştırıldığı için bu kitap ana söz dağarcığı olarak daha yerleşik “iş birliği topolojisi” ve “orkestrasyon” terimlerini kullanmayı sürdürür.
 
@@ -80,9 +80,9 @@ Tablo 10-2 Çoklu Agent İş Birliği Modellerinin Bilgi Kazanımı Karşılaşt
 |---|---|---|
 | Aynı modelin kendini incelemesi (kendi çıktısını yeniden okuması) | Hayır | Genellikle etkisiz, hatta zararlı |
 | Farklı Agent'ların aynı metin üzerinde tartışması | Hayır | Eşit hesaplama yükünde tek Agent'la başa baş |
-| Reviewer'ın test yürütme sonuçlarıyla kodu incelemesi | Evet (yürütme geri bildirimi) | Belirgin iyileşme |
-| Reviewer'ın render edilmiş ekran görüntüsüne bakarak frontend/PPT kodunu incelemesi | Evet (görsel geri bildirim) | Belirgin iyileşme |
-| Reviewer'ın dış araçlarla olguları doğrulaması | Evet (araç geri bildirimi) | Belirgin iyileşme |
+| İnceleyicinin test yürütme sonuçlarıyla kodu incelemesi | Evet (yürütme geri bildirimi) | Belirgin iyileşme |
+| İnceleyicinin render edilmiş ekran görüntüsüne bakarak frontend/PPT kodunu incelemesi | Evet (görsel geri bildirim) | Belirgin iyileşme |
+| İnceleyicinin dış araçlarla olguları doğrulaması | Evet (araç geri bildirimi) | Belirgin iyileşme |
 
 2025 yılının RLEF'i (Reinforcement Learning from Execution Feedback)[^rlef-2025] bunu doğruladı: modeli, kod yürütme geri bildirimini kullanarak kodu yinelemeli biçimde iyileştirmek üzere pekiştirmeli öğrenmeyle eğitmek, modele bağımsız olarak birçok kez örnekleme yaptırmaktan çok daha iyi sonuç verdi. Kilit nokta, her yinelemenin **gerçek yürütme sonuçlarını** (derleme hataları, test başarısızlıkları, çalışma zamanı istisnaları) getirmesidir; bu bilgiler model kodu yazarken mevcut değildi. 2025 yılının WebGen-Agent'ı [^webgen-agent-2025] web sayfası üretme görevinde, çok katmanlı görsel geri bildirimden (ekran görüntüsü artı görsel dil modeli açıklaması) oluşan bir geri bildirim iskelesiyle, bildirildiğine göre Claude 3.5 Sonnet'in bu benchmark'taki performansını %26,4'ten %51,9'a çıkardı — neredeyse iki katına.
 
@@ -99,107 +99,26 @@ Bütün tasarımların önüne konulması gereken bir şey daha var: **maliyet**
 
 ## Paylaşılan Context'li Çoklu Agent İş Birliği
 
-Paylaşılan context'li çoklu Agent iş birliğinde her aşama bağımsız bir Agent'tır (kendi system prompt'u ve araç kümesi vardır), ama kendinden önceki Agent'ın eksiksiz trajectory'sini devralır — tıpkı vardiyayı devralan bir iş arkadaşının selefinin bıraktığı bütün çalışma kayıtlarını karıştırabilmesi gibi. Bu "devralmalı iş birliği"nin temel üstünlüğü bilgide sıfır kayıptır; her Agent önceki herhangi bir aşamanın ayrıntısına dönüp bakabilir. Zorluk ise mevcut Agent'ı, devraldığı büyük hacimli geçmiş bilgiyle dikkati dağılmadan kendi çekirdek sorumluluğuna odaklı tutmaktır.
+Paylaşılan context ile iş birliğinde her aşama kendi system prompt'una ve araçlarına sahip bağımsız bir Agent'dır; ancak önceki aşamanın tam trajectory'sini devralır. Temel avantaj bilgi kaybının olmamasıdır. Zorluk ise büyüyen geçmişe rağmen mevcut Agent'ı kendi sorumluluğuna odaklamaktır.
 
-### Çok Aşamalı Rol Değiştirme
+Karmaşık görevlerde rol ve sorumluluklar aşamalar arasında önemli ölçüde değişebilir. Tek bir statik prompt ya fazla genel ya da aşırı uzun olur; bu nedenle system prompt ve araç seti aşamaya göre değiştirilebilir.
 
-Önce bir tanım tartışmasını açığa çıkaralım: Bölüm 1'in diliyle söylersek çok aşamalı rol değiştirme **workflow tarzı bir orkestrasyondur** — yürütme yolu (örneğin gereksinim netleştirme → gerçekleştirme → inceleme) önceden tanımlanmıştır. Process açısından bakıldığında daha da nettir: bu, tek bir process'in farklı aşamaların kodunu sırayla yürütmesidir — değişen kod bölümüdür, bellek baştan sona aynıdır, çok process'li bir yapı değildir. Dolayısıyla bunu "gerçek çoklu Agent" saymayan görüşün haklı bir yanı var. Bu bölüm yine de onu çoklu Agent çerçevesine dahil ediyor, çünkü bunun somut bir tasarım getirisi var: her aşamanın system prompt'u, araç kümesi ve odağı farklı olduğunda, aşamaları aynı trajectory'yi paylaşan birden fazla Agent olarak görmek her "kimliğin" prompt'unun ve araç kümesinin bağımsız olarak inceltilmesine imkân verir; aşama sınırları da doğal olarak kalite kontrol noktalarına dönüşür.
+Temel mimari seçim, rol geçişinde system prompt'u değiştirmek mi yoksa Skill yüklemek mi gerektiğidir. İkisi de davranış kurallarını değiştirir, fakat maliyet ve sınır modelleri farklıdır.
 
-Karmaşık görevlerde Agent'ın rolü ve sorumlulukları farklı aşamalarda belirgin biçimde değişebilir. Baştan sona tek bir statik system prompt kullanılırsa, ya fazla genel kalıp hedefe yönelmez ya da bütün aşamaların yönergeleri bir araya tıkıştırıldığından aşırı uzun olur. Çok aşamalı rol değiştirmenin yaptığı şudur: mevcut aşamaya göre system prompt'u ve araç kümesini dinamik olarak değiştirmek, böylece Agent her aşamada en uygun "kimlikle" çalışır. Bu değişim yeni bir örnek oluşturmayı veya yeni bir process başlatmayı gerektirmez; yalnızca aynı yürütme oturumu içinde context'i günceller. Kilit nokta şudur: rol değişse de konuşma geçmişi ve görev durumu baştan sona sürekli biçimde paylaşılır — Agent yeni rolünde de önceki aşamalarda biriken bütün bilgiye erişebilir.
+| Seçim | Rol kurallarının taşıyıcısı | Araç görünürlüğü | Context/KV Cache etkisi | Kısıt gücü |
+|---|---|---|---|---|
+| `transfer_to_agent` | System prompt'u ve genellikle araç setini değiştirir | Yalnızca mevcut rolün araçları | Her geçiş istek prefix'ini değiştirir; fark noktasından sonraki cache genellikle kullanılamaz | Güçlü: rol dışı araçlar schema'dan çıkarılabilir |
+| Skill | Sabit Skill dizini; gerektiğinde `SKILL.md` trajectory'ye eklenir | Genellikle tüm katalog veya sabit arama girişi | Statik prefix değişmez; Skill trajectory'nin sonuna eklenir | Zayıf: Skill bir talimattır; katı izinleri Harness uygular |
 
+Rol farkı bilgi, süreç veya yazım tarzıysa Skill tercih edilir. Fark izin, araç izolasyonu, uyumluluk ya da yan etkilerin yasaklanmasıyla ilgiliyse ayrı Agent veya `transfer_to_agent` kullanılmalı ve araç sınırları Harness'ta kodla zorlanmalıdır.
 
-![Şekil 10-2: Aşamaya Dayalı Rol Değiştirme](images/fig10-2.svg)
-
-
-> **Deney 10-1 ★★: Yürütme Aşamasına Göre System Prompt Belirleme**
+> **Deney 10-1 ★★: Paylaşılan context'te rol geçişi — system prompt ile Skill karşılaştırması**
 >
-> Bu deney, bir Kodlama Agent'ının eksiksiz iş akışı üzerinden, aşamalandırılmış system prompt'ların Agent'ın performansını nasıl artırdığını gösterir.
+> **Ortak görev ve değişkenler**: iki yol aynı modeli, görevi, araç uygulamalarını, rol kurallarını ve tam paylaşılan trajectory'yi kullanır. Görev, Çin'in 2021–2023 yeni enerjili araç satışlarını bulmak, CAGR'ı hesaplamak ve 120 Çince karakteri aşmayan yatırımcı özeti yazmaktır.
 >
-> **Görev Senaryosu**: Kullanıcı bir yazılım geliştirme talebi ortaya koyar; Agent sırayla üç aşamadan geçer: gereksinim netleştirme, kod gerçekleştirme, kalite incelemesi.
+> **Yol 1: system prompt geçişi**. Beş rol `triage`, `research`, `coding`, `data_analysis` ve `writing`'dir. Her rol yalnızca kendi araçlarını ve `transfer_to_agent` aracını görür; devirde geçmiş korunur, hedef rolün prompt'u ve araçları yüklenir ve yürütme sürer.
 >
-> **Birinci Aşama: Gereksinim Netleştirme** (rol: gereksinim analisti)
->
-> System prompt şunları vurgular:
-> - "Senin sorumluluğun kullanıcının ihtiyacını tam olarak anlamaktır. Belirsiz noktaları netleştirmek için sorular sor; kullanıcının beklediği işlevi, kullanım senaryolarını ve performans gereksinimlerini eksiksiz kavradığından emin ol."
-> - "Gerçekleştirmeye acele etme. Bu aşamada görevin soru sormak ve teyit almaktır, kod yazmak değil."
-> - "Bütün kritik gereksinimlerin netleştiğini teyit ettiğinde, bu aşamayı bitirmek için `complete_requirements_analysis()` aracını çağır."
->
-> Araç kümesi sınırlıdır: kullanıcıya netleştirici soru sormak için `ask_clarifying_question(question)`, teyit edilen gereksinim maddelerini kaydetmek için `save_requirement(key, value)`, aşamanın tamamlandığını işaretlemek için `complete_requirements_analysis()`.
->
-> Agent kullanıcıyla çok turlu bir konuşma yürütür: "Bu betik hangi tür dosyaları işleyecek?" "Alt klasörler özyinelemeli olarak işlensin mi?" "Dosyalar taşındıktan sonra orijinal dosya adları korunsun mu?" Bu sorular sayesinde Agent adım adım eksiksiz bir gereksinim anlayışı kurar ve bunu yapılandırılmış biçimde kaydeder. Agent gereksinimlerin yeterince netleştiğine kanaat getirdiğinde `complete_requirements_analysis()` çağırarak rol değişimini tetikler — sistem aşamanın tamamlandığı sinyalini algılar ve otomatik olarak sonraki aşamanın yapılandırmasına geçer.
->
-> **İkinci Aşama: Kod Gerçekleştirme** (rol: yazılım mühendisi)
->
-> Yeni system prompt şunları vurgular:
-> - "Senin sorumluluğun, teyit edilmiş gereksinimlere dayanarak yüksek kaliteli Python kodu yazmaktır."
-> - "En iyi pratikleri izle: kod modüler olmalı, uygun hata işleme içermeli, gerekli yorumları barındırmalı."
-> - "Kodu yazmayı bitirip temel testleri geçtikten sonra, inceleme aşamasına geçmek için `submit_for_review()` çağır."
->
-> Araç kümesi belirgin biçimde değişir: önceki gereksinim netleştirme araçları kaldırılır, yerlerine `write_file(path, content)`, `read_file(path)`, `execute_code(code)` gibi geliştirme araçları gelir. Agent, birinci aşamada kaydedilen gereksinimlere dayanarak kod yazmaya başlar — önce ana mantığı yazar, sonra hata işleme ekler, en sonunda doğrulama için test yazar. Süreç boyunca Agent birinci aşamanın konuşma geçmişine erişip gereksinim ayrıntılarına dönüp bakabilir, ama davranış kalıbı tamamen farklıdır: artık soru sormaz, gerçekleştirmeye odaklanır. Bitirdikten sonra `submit_for_review()` çağırır.
->
-> **Üçüncü Aşama: Kod İncelemesi** (rol: kod inceleyici)
->
-> Yeni system prompt şunları vurgular:
-> - "Senin sorumluluğun az önce yazılan kodu incelemek ve kalitesini birden fazla boyutta değerlendirmektir: işlevsel doğruluk, kod standartlarına uygunluk, hata işleme, performans optimizasyonu, güvenlik."
-> - "Eleştirel düşün; kodda bulunabilecek sorunları ve iyileştirme alanlarını bulmaya çalış."
-> - "Ciddi bir sorun bulursan `request_revision(issues)` çağırıp düzeltme için gerçekleştirme aşamasına dön; kalite kabul edilebilirse `approve_code()` çağırıp görevi tamamla."
->
-> Araç kümesi yeniden değişir: yerini `run_linter(file)`, `run_tests(file)`, `analyze_complexity(file)` gibi kod kalitesi analiz araçları alır. Agent koda inceleyici gözüyle yeniden bakar, statik analiz çalıştırır, olası bug'ları, performans sorunlarını veya güvenlik açıklarını tarar.
->
-> Bu üç aşamalı tasarım, Agent'ın her aşamada o anki çekirdek göreve odaklanmasını sağlar. Daha da önemlisi, net aşama geçiş mekanizması görevin eksiksiz yürütülmesini güvence altına alır — Agent gereksinim analizini atlayıp doğrudan kod yazmaz, incelemeden geçmemiş bir sonucu da teslim etmez.
->
-> **Deney Gereksinimleri**:
-> 1. Her aşamada net bir rol tanımı ve davranış yönergesi bulunan üç aşamalı system prompt'ları gerçekleştirin
-> 2. Her aşama için eşleşen araç kümesini yapılandırın
-> 3. Aşama geçişini tetikleyen mekanizmayı gerçekleştirin (belirli araç çağrıları üzerinden)
-> 4. Context'in aşamalar arasındaki sürekliliğini güvence altına alın
-> 5. Geri dönüş durumlarını ele alın — kod incelemesi sorun bulduğunda gerçekleştirme aşamasına dönülebilsin
-> 6. Her aşamanın yürütme günlüğünü kaydedin; farklı prompt'ların farklı davranış kalıplarını nasıl ürettiğini gösterin
->
-
-### Alanlar Arası Rol Değiştirme
-
-Önceki çok aşamalı rol değiştirme, tek bir görev tipi (yazılım geliştirme) içindeki aşamalandırılmış yürütmeyi gösteriyordu. Alanlar arası rol değiştirme ise bir adım daha ileri giderek Agent'ın birden fazla görev tipi arasında otonom geçiş yapmasını inceler — artık önceden planlanmış doğrusal bir akış değil, kullanıcının değişen ihtiyacına göre hangi uzman role geçileceğine Agent'ın kendisinin karar vermesi söz konusudur.
-
-> **Deney 10-2 ★★: Çoklu Rol Değiştirme**
->
-> **Ön Koşul**: Önce Bölüm 2'deki Agent Skills mekanizmasını incelemeniz önerilir.
->
-> **Sistem Mimarisi**: Beş rol —
->
-> - **triage (ön masa triyajı, varsayılan giriş noktası)**: Kullanıcının bütünsel ihtiyacını anlar, onu sıraya konmuş alt görevlere böler, adım adım uygun uzman rollere devreder ve bütün alt görevler bittikten sonra kapanış teyidini yapar. Kendine ait uzman aracı yoktur, yalnızca transfer aracını taşır
-> - **research (bilgi arama uzmanı)**: `web_search` ile veri, olgu ve kaynak arar
-> - **coding (programlama uzmanı)**: `execute_python` ile kod yazıp çalıştırır, program mantığı ve betik türü sorunları çözer
-> - **data_analysis (veri analizi uzmanı)**: `calculate` / `descriptive_stats` ile niceliksel hesaplama ve istatistik yapar (yıllık büyüme oranı, yıllık bileşik büyüme oranı CAGR, ortalama gibi)
-> - **writing (yazım uzmanı)**: Bulunan verileri ve hesap sonuçlarını, belirtilen okur kitlesine yönelik akıcı bir metne dönüştürür (uzunluğu kabaca kontrol etmek için `count_characters` kullanılabilir)
->
-> **Çekirdek Mekanizma: transfer_to_agent Aracı**
->
-> Bütün roller `transfer_to_agent(target_role, reason)` aracıyla donatılmıştır. Çağrıldığında sistem sırayla şunları yapar: 1) mevcut konuşma geçmişini kaydeder; 2) hedef rolün prompt'unu ve araç kümesini yükler; 3) konuşma geçmişini yeni role aktararak context'i anlamasını sağlar; 4) yeni rol kimliğiyle yürütmeye devam eder.
->
-> **Deney Senaryosu**: Sistem varsayılan olarak triage (ön masa triyajı) kimliğiyle çalışır. Kullanıcı alanlar arası bileşik bir görevle gelir: "Yatırımcılara sunacağım bir materyal hazırlıyorum; Çin'in 2021, 2022 ve 2023 yıllarındaki yeni enerjili araç satışlarını bulup bu üç yılın yıllık bileşik büyüme oranını hesaplar mısın, sonra da yatırımcılara yönelik, 120 karakteri geçmeyen Çince bir özet yazar mısın." triage bunu "veriyi bul → metriği hesapla → metni yaz" biçiminde ayırır ve ilk adımda aramayı devreder:
->
-> ```python
-> transfer_to_agent(target_role="research", reason="önce üç yılın yeni enerjili araç satış verilerinin bulunması gerekiyor")
-> ```
->
-> research `web_search` ile satış rakamlarını bulduktan sonra kilit verileri konuşmaya yazar ve veri analizine devreder:
->
-> ```python
-> transfer_to_agent(target_role="data_analysis", reason="veri hazır, üç yıllık CAGR'ın hesaplanması gerekiyor")
-> ```
->
-> data_analysis `calculate` ile büyüme oranını hesaplar ve metnin yazılması için writing'e devreder; writing metni yazdıktan sonra kapanış teyidi için triage'a geri devreder. Zincirin tamamı triage → research → data_analysis → writing → triage biçimindedir; her rol eksiksiz konuşma geçmişini görebildiği için sonraki rol önceki adımlarda ne yapıldığını doğal olarak bilir.
->
-> Rol değiştirme kararı system prompt'un yönlendirmesine dayanır. triage'ın prompt'unda yönlendirme kuralları açıkça sıralanmıştır: veri ve kaynak arama research'e, kod yazıp çalıştırma coding'e, niceliksel hesaplama ve istatistik data_analysis'e, metni düzenleyip yazma writing'e. Ölçüt basittir: görev belirli bir alanda derin bilgi veya uzman araç gerektiriyorsa ilgili uzman role devredilir. Uzman rollerin prompt'ları da kendi paylarına düşen işi bitirdikten sonra kime devredeceklerini veya triage'a nasıl döneceklerini belirtir.
->
-> **Deney Gereksinimleri**:
-> 1. En az üç uzman rolün system prompt'unu ve özel araç kümesini gerçekleştirin
-> 2. Dinamik geçişi destekleyen `transfer_to_agent` aracını gerçekleştirin
-> 3. Rol değişiminden sonra context sürekliliğini güvence altına alın
-> 4. Döngüsel geçiş sorununu ele alın — Agent'ın roller arasında tekrar tekrar gidip gelmesini önleyin
-> 5. Rol değiştirmenin değerini gösteren, birden fazla alanı kapsayan karmaşık görev akışları tasarlayın
->
+> **Yol 2: Skill**. System prompt ve tam araç kataloğu oturum boyunca sabit kalır. Model `load_skill(name)` çağırır; okunan `SKILL.md` araç sonucu olarak paylaşılan trajectory'ye girer. Statik prefix değişmez, katı izinleri Harness kuralları uygular.
 
 ## Paylaşılmayan Context'li Çoklu Agent İş Birliği
 
@@ -222,9 +141,8 @@ Tablo 10-3 Çoklu Agent Sistemleri ile İşletim Sistemleri Arasındaki Karşıl
 | Çıkış kodu ve wait() | Alt Agent'ın döndürdüğü yapılandırılmış özet |
 | Paylaşılan bellek / mesaj geçirme | Paylaşılan dosya sistemi / mesaj |
 
-Program statik koddur, process ise programın bir kez çalışmasıdır. Aynı şekilde static prefix Agent'ın kim olduğunu belirler, trajectory ise hangi adıma kadar geldiğini kaydeder. LLM, CPU'nun rolünü oynar: kendisi durum tutmaz, farklı context'leri yükleyerek zaman paylaşılan biçimde pek çok Agent'a hizmet eder — "context switch" (bağlam değiştirme) terimi zaten işletim sistemlerinden ödünç alınmıştır. Tam da bu yüzden, daha hızlı bir CPU takıldığında program eskisi gibi çalışır; daha güçlü bir model takıldığında da Agent yine aynı Agent'tır — kimliği ve belleği prefix ile trajectory'de durur, model ağırlıklarında değil.
 
-Bu soyutlama yeni değil: özel durum, asenkron mesajlar ve yeni üyeler oluşturabilme, 1970'lerin Actor modelinin temel kurgusudur[^actor-model]; çoklu Agent sistemlerini onun LLM sürümü olarak görmekte sakınca yoktur. Bu nedenle işletim sistemlerinin ve dağıtık sistemlerin olgunlaşmış deneyimi büyük ölçüde doğrudan ödünç alınabilir. Tek geçersizleşen nokta şudur: process'ler arasında bayt aktarılır, bit bit sadakatle; Agent'lar arasında ise anlam aktarılır ve her aktarım bir bozulmaya yol açabilir — bu bölümün "başarısızlık kalıpları" kısmının özel olarak ele alacağı yeni sorun budur.
+Bu soyutlama yeni değil: özel durum, asenkron mesajlar ve yeni üyeler oluşturabilme, 1970'lerin Actor modelinin temel kurgusudur[^actor-model]; çoklu Agent sistemlerini onun LLM sürümü olarak görmekte sakınca yoktur. Bu nedenle işletim sistemlerinin ve dağıtık sistemlerin olgunlaşmış deneyimi büyük ölçüde doğrudan ödünç alınabilir.
 
 [^actor-model]: Hewitt, C., Bishop, P., Steiger, R. *A Universal Modular ACTOR Formalism for Artificial Intelligence.* IJCAI 1973.
 
@@ -269,17 +187,34 @@ Dört bölgenin aynı dizin ağacı altında birleştirilmesi, tam da "**dosya y
 
 Dosya sistemi Agent'lar arasındaki **ürün alışverişi** sorununu çözer; iş birliği bir de **kontrol düzlemi** gerektirir. Tablo 10-3'teki yaşam döngüsü satırları tam da burada işe yarar: oluşturma (`spawn_subagent`), mesaj gönderme (`send_message_to_subagent`), iptal etme (`cancel_subagent`) ve keşfetme (`list_agents`) — Bölüm 4'te verilen bu araç ilkelleri, process dünyasındaki fork, mesaj, kill ve ps'e karşılık gelir. Bu kısım arayüz tanımlarını tekrarlamayacak; çoklu Agent iş birliğinin dayandığı, ama sıklıkla gözden kaçan dört yeteneğe odaklanacak.
 
-**Bir, mesaj geçirme.** En yalın biçimi noktadan noktayadır: Agent A doğrudan `send_message_to_agent_b(content)` çağırır; topolojinin sabit, Agent sayısının az olduğu senaryolara uygundur (bu bölümdeki Deney 10-4'ün telefon artı bilgisayar ikili Agent'ı gibi). Agent sayısı arttığında ve asenkron paralellik gerektiğinde noktadan noktaya bağlantı sayısı Agent sayısının karesiyle büyür, ayrıca gönderen ile alanın aynı anda çevrimiçi olmasını gerektirir; bu durumda **message bus'a** geçilmelidir (ayrıntı için bu bölümün ilerideki "paralel koordinasyon biçimi" kısmına bakın): Agent mesajı bus'a yayımlar, bus abonelik ilişkisine göre iletir, gönderenin tüketicileri bilmesi gerekmez. İster noktadan noktaya ister bus üzerinden olsun, mesajlar genellikle yapılandırılmış bir **zarf** (envelope) taşımalıdır: gönderen kimliği, hedef (belirli bir Agent veya yayın), mesaj tipi (`task_assigned`/`status_update`/`result`/`terminate` gibi) ve JSON yükü. Tek tip zarf formatı, alıcının güvenilir biçimde yönlendirme ve ayrıştırma yapmasını sağlar, iş birliği zincirini de izlenebilir kılar — bu, çoklu Agent sistemlerinde hata ayıklamanın anahtarıdır.
+**Mesaj zarfı ve worker yaşam döngüsü:**
+
+```python
+envelope = {
+    id, trace_id, sender, recipient, type,
+    payload, created_at, deadline, schema_version
+}
+
+worker = spawn(task, budget, cancellation_token)
+publish(task_assigned(envelope, worker))
+while worker.is_running:
+    accept(status_update | artifact | needs_input)
+    if deadline_expired or cancellation_token.is_set:
+        request_graceful_stop(worker)
+await worker.ack_or_timeout()
+```
+
+**Bir, mesaj geçirme.** En yalın biçimi noktadan noktayadır: Agent A doğrudan `send_message_to_agent_b(content)` çağırır; topolojinin sabit, Agent sayısının az olduğu senaryolara uygundur (bu bölümdeki Deney 10-3'ün telefon artı bilgisayar ikili Agent'ı gibi). Agent sayısı arttığında ve asenkron paralellik gerektiğinde noktadan noktaya bağlantı sayısı Agent sayısının karesiyle büyür, ayrıca gönderen ile alanın aynı anda çevrimiçi olmasını gerektirir; bu durumda **message bus'a** geçilmelidir (ayrıntı için bu bölümün ilerideki "paralel koordinasyon biçimi" kısmına bakın): Agent mesajı bus'a yayımlar, bus abonelik ilişkisine göre iletir, gönderenin tüketicileri bilmesi gerekmez. İster noktadan noktaya ister bus üzerinden olsun, mesajlar genellikle yapılandırılmış bir **zarf** (envelope) taşımalıdır: gönderen kimliği, hedef (belirli bir Agent veya yayın), mesaj tipi (`task_assigned`/`status_update`/`result`/`terminate` gibi) ve JSON yükü. Tek tip zarf formatı, alıcının güvenilir biçimde yönlendirme ve ayrıştırma yapmasını sağlar, iş birliği zincirini de izlenebilir kılar — bu, çoklu Agent sistemlerinde hata ayıklamanın anahtarıdır.
 
 **İki, durum sorgulama.** Kontrol düzleminin en çok küçümsenen halkası budur. Ana Agent bir alt Agent'ı yola çıkardıktan sonra ilerlemesini öğrenemezse, ne beklemeye devam edip etmeyeceğine karar verebilir ne de alt Agent tıkandığında zamanında müdahale edebilir. Sezgisel yaklaşım RPC'yi olduğu gibi almak, bir `get_subagent_status(agent_id)` sorgu arayüzü tanımlayıp "çalışıyor/tamamlandı/başarısız" bilgisiyle bir ilerleme yüzdesi döndürmektir. Ama bu çekme tarzı arayüzün pratik faydası beklenenin çok altındadır: alt Agent oluşturulur oluşturulmaz yürütmeye başlar ve tamamlanana veya başarısız olana kadar sürer; geleneksel toplu işlem sistemlerindeki işler gibi bir dizi kuyruk durumu arasında dolaşmaz — nitekim Unix programlamada bir process'in çalışma durumunu PID üzerinden yoklamaya çok nadiren ihtiyaç duyulur. Yoklamanın doğasında bir de ikilem vardır: sık yapılırsa token israf eder, seyrek yapılırsa geç kalır. Durum edinmenin daha doğal yolu, bu bölümün başındaki iki iletişim paradigmasına dönmektir.
 
-**Durumu mesaj geçirmeyle edinmek**. Ana Agent alt Agent'a doğrudan bir mesaj gönderir: "Durum ne?" Alt Agent uygun bir anda yanıtlar. Her şey asenkrondur: mesaj göndermek kendi yürütmesini engellemez, karşı tarafın ne zaman yanıtlayacağı, hatta yanıtlayıp yanıtlamayacağı ayrı bir konudur — tıpkı bir yöneticinin anlık mesajla astına ilerlemeyi sorması, ama elindeki işi hemen bırakmasını istememesi gibi. Tersine, alt Agent kritik bir noktaya vardığında kendiliğinden mesaj gönderip rapor da verebilir; sistemde zaten bir message bus kurulmuşsa bu, bus'a bir `status_update` yayımlamak demektir (Deney 10-6'nın "gerçek zamanlı izleme"si bu biçimdedir). İster soru-cevapla ister kendiliğinden raporla olsun, mesajdaki durumun kendisi tek tip bir durum makinesi sözlüğü kullanmalıdır (yürütülüyor, girdi gerekiyor, tamamlandı, başarısız) — bu bölümün ilerideki A2A protokolü de görev yaşam döngüsünü tam olarak böyle bir durum kümesine standartlaştırır.
+**Durumu mesaj geçirmeyle edinmek**. Ana Agent alt Agent'a doğrudan bir mesaj gönderir: "Durum ne?" Alt Agent uygun bir anda yanıtlar. Her şey asenkrondur: mesaj göndermek kendi yürütmesini engellemez, karşı tarafın ne zaman yanıtlayacağı, hatta yanıtlayıp yanıtlamayacağı ayrı bir konudur — tıpkı bir yöneticinin anlık mesajla astına ilerlemeyi sorması, ama elindeki işi hemen bırakmasını istememesi gibi. Tersine, alt Agent kritik bir noktaya vardığında kendiliğinden mesaj gönderip rapor da verebilir; sistemde zaten bir message bus kurulmuşsa bu, bus'a bir `status_update` yayımlamak demektir (Deney 10-4'nın "gerçek zamanlı izleme"si bu biçimdedir). İster soru-cevapla ister kendiliğinden raporla olsun, mesajdaki durumun kendisi tek tip bir durum makinesi sözlüğü kullanmalıdır (yürütülüyor, girdi gerekiyor, tamamlandı, başarısız) — bu bölümün ilerideki A2A protokolü de görev yaşam döngüsünü tam olarak böyle bir durum kümesine standartlaştırır.
 
 **Durumu paylaşılan dosya sistemiyle edinmek**. En köklü biçimi **trajectory kalıcılaştırmadır** (trajectory persistence): alt Agent yürütme sırasında kendi trajectory'sini (Bölüm 1'de tanımlanan trajectory — kullanıcı mesajları, model yanıtları, araç çağrıları ve sonuçlarının eksiksiz dizisi) gerçek zamanlı olarak JSON'a serileştirir ve dosya sistemindeki bir günlük dosyasına ekleyerek yazar (genellikle her oturum için bir dosya, her satırda bir olay, yani JSONL formatı). Ana Agent'ın herhangi bir durum bildirim protokolüne ihtiyacı yoktur; doğrudan bu dosyayı okuyarak alt Agent'ın bütün yürütme sürecini görebilir: hangi aracı çağırdığını, son adımda ne düşündüğünü, tekrar tekrar başarısız olan bir yeniden denemede takılıp kalmadığını. Process diliyle söylersek bu, doğrudan başka bir process'in belleğini okumaya denktir — alt Agent'ın context'ini işgal etmez, onun iş birliğine bağımlı değildir, gözlem çözünürlüğü en incedir. Ama her ayrıntının dökülmesi bir yük de getirir: trajectory'ler kolayca on binlerce token'ı bulur, ana Agent okuduktan sonra bir de kendisi özütlemek zorunda kalır; bu hem zaman hem token harcar. Bu yüzden çoğu senaryoda daha makul olan, **üzerinde anlaşılmış bir ilerleme dosyasıdır**: ana Agent alt Agent'ı başlatırken "ilerlemeyi progress.md'ye yaz" diye anlaşır, alt Agent her maddeyi bitirdikçe bu görev listesini günceller, ana Agent da bu hafif dosyayı istediği an okuyarak durumu öğrenir. Bu, iki process'in paylaşılan bellekte üzerinde anlaşılmış formatta küçük bir durum alanı ayırmasına denktir; açığa çıkan şey "belleğin tamamı" değil, özütlenmiş ilerlemedir. İlerleme dosyası ayrıca **takılma tespiti** de sağlar: progress.md'nin (veya trajectory dosyasının) son değiştirilme zamanı N dakikadır değişmiyorsa, alt Agent'ın etkin olmadığına hükmedilip zaman aşımı emniyet mekanizması tetiklenebilir (Bölüm 4'teki Heartbeat ve monitor_shell ile örtüşür); böylece sistemin tıkanmış bir alt Agent yüzünden aksaması önlenir.
 
 Trajectory kalıcılaştırmanın değeri izlemenin çok ötesindedir. Bölüm 1'in "Agent'ın context'i = static prefix + trajectory" sonucunu hatırlayın: static prefix (system prompt, araç tanımları) kodla belirlenir ve Agent'ın trajectory dışında bir çalışma zamanı durumu yoktur (çalışma ürünleri zaten dosya sisteminde durur) — **trajectory, Agent'ın bütün durumudur**. Trajectory'yi gerçek zamanlı olarak dosyaya kalıcılaştırmak, her an elde eksiksiz bir kontrol noktası bulundurmakla eşdeğerdir: Agent process'i çökse de, makinenin elektriği kesilse de, kullanıcı oturumu kendi kapatsa da, trajectory dosyasını yeniden yükleyip static prefix'i başına eklemek yürütmeyi kesildiği yerden sürdürmeye yeter; Claude Code, Codex CLI gibi kodlama Agent'larının oturum kurtarma (session resume) işlevi tam da böyle gerçeklenir. Bu, veritabanlarının önden yazma günlüğüyle (write-ahead log) aynı fikirdir: her olay önce yalnızca eklenen, hiç silinmeyen bir günlüğe yazılır ve durum her zaman günlükten yeniden oynatılabilir (Bölüm 3'teki "olgu günlüğü + periyodik kontrol noktası" bellek tasarımı aynı fikrin bellek sistemlerine uygulanmasıdır). Çoklu Agent sistemleri açısından bu, alt Agent'ların doğal olarak **kurtarılabilir, denetlenebilir ve devredilebilir** olması demektir: Manager, çöken bir alt Agent'ı son geçerli durumundan yeniden başlatabilir, sonrasında trajectory'yi olay olay yeniden oynatarak başarısızlığın nedenini bulabilir, hatta trajectory'yi göreviyle birlikte başka bir Agent'a devredip yürütmeyi sürdürtebilir.
 
-**Üç, yürütmenin sonlandırılması.** Paralel iş birliğinde sık görülen bir durum "biri başarır, gerisi geçersizleşir"dir — birden fazla Agent ayrı ayrı arama yapar, biri hedefi bulunca diğerleri derhal durmalıdır (bu bölümdeki Deney 10-6'nın kademeli sonlandırması). Sonlandırmanın iki şiddeti vardır; Unix kullanıcıları bunun SIGTERM ile SIGKILL arasındaki fark olduğunu fark edecektir. **Zarif sonlandırma (graceful)** tercih edilendir: ana Agent bir `terminate` sinyali gönderir, alt Agent mevcut adımın güvenli bir noktasında yanıt verir, önce kaynakları temizler (tarayıcı oturumlarını kapatır, tamamlanmamış dosyaları yazar, kilitleri bırakır), onay (ack) döndürüp çıkar. **Zorla sonlandırma (forced)** ise emniyet mekanizmasıdır: process doğrudan sonlandırılır; yalnızca alt Agent zarif sinyale yanıt vermediğinde kullanılır, bedeli askıda kalmış kaynaklar ve yarım kalmış yazmalardır. İki mühendislik noktası ele alınmalıdır: birincisi, zarif sonlandırma alt Agent'ın döngüsünde sonlandırma sinyalini düzenli olarak kontrol etmesini gerektirir (Bölüm 4'teki kesme mekanizmasına benzer), aksi halde sinyale yanıt verilemez; ikincisi, kademeli sonlandırmada bir yarış koşulu vardır — birden fazla alt Agent neredeyse aynı anda başarı bildirebilir, ana Agent kilit veya idempotent tasarımla yalnızca bir kez hesaplaşmayı ve yalnızca bir tur sonlandırma yayını yapmayı güvence altına almalıdır; ayrıntı için bu bölümdeki Deney 10-6'nın yarış koşulu tartışmasına bakın.
+**Üç, yürütmenin sonlandırılması.** Paralel iş birliğinde sık görülen bir durum "biri başarır, gerisi geçersizleşir"dir — birden fazla Agent ayrı ayrı arama yapar, biri hedefi bulunca diğerleri derhal durmalıdır (bu bölümdeki Deney 10-4'nın kademeli sonlandırması). Sonlandırmanın iki şiddeti vardır; Unix kullanıcıları bunun SIGTERM ile SIGKILL arasındaki fark olduğunu fark edecektir. **Zarif sonlandırma (graceful)** tercih edilendir: ana Agent bir `terminate` sinyali gönderir, alt Agent mevcut adımın güvenli bir noktasında yanıt verir, önce kaynakları temizler (tarayıcı oturumlarını kapatır, tamamlanmamış dosyaları yazar, kilitleri bırakır), onay (ack) döndürüp çıkar. **Zorla sonlandırma (forced)** ise emniyet mekanizmasıdır: process doğrudan sonlandırılır; yalnızca alt Agent zarif sinyale yanıt vermediğinde kullanılır, bedeli askıda kalmış kaynaklar ve yarım kalmış yazmalardır. İki mühendislik noktası ele alınmalıdır: birincisi, zarif sonlandırma alt Agent'ın döngüsünde sonlandırma sinyalini düzenli olarak kontrol etmesini gerektirir (Bölüm 4'teki kesme mekanizmasına benzer), aksi halde sinyale yanıt verilemez; ikincisi, kademeli sonlandırmada bir yarış koşulu vardır — birden fazla alt Agent neredeyse aynı anda başarı bildirebilir, ana Agent kilit veya idempotent tasarımla yalnızca bir kez hesaplaşmayı ve yalnızca bir tur sonlandırma yayını yapmayı güvence altına almalıdır; ayrıntı için bu bölümdeki Deney 10-4'nın yarış koşulu tartışmasına bakın.
 
 Geriye bir artık sorun kalıyor: ana Agent sonlandıktan sonra hâlâ çalışan alt Agent'lara ne olacak? Mühendislikte en yalın yaklaşım Go'nun context'inden ödünç alınır — sonlandırma, oluşturma ilişkisi boyunca aşağı doğru kademelenir: bir Agent iptal edildiğinde ondan türeyen bütün alt Agent'lar da iptal olur; böylece sahipsiz kalan öksüz Agent'lar kökten engellenir. Yukarıdaki "alt Agent güvenli noktada sonlandırma sinyalini kontrol eder" ifadesi, Go'da `ctx.Done()`'ın yoklanmasına karşılık gelir. Tersine, gerçekten ana Agent'tan kopuk, uzun süre çalışan bir arka plan Agent'ı gerekiyorsa (Unix'teki `nohup` gibi), onu yeni bir yaşam döngüsü ağacından başlatın (`context.Background()`'a karşılık gelir) ve üst düzeyle birlikte sonlanmayacağını açıkça bildirin.
 
@@ -323,6 +258,24 @@ Bu paradigma güvenlik incelemesi (Proposer işlem planını üretir, Reviewer u
 
 **Neden bir Agent kendi ürettiğini kendi inceleyemiyor?** Bu, az önceki "çoklu Agent tek Agent'tan ne zaman gerçekten üstündür" kısmındaki ölçütün somut karşılığıdır — inceleme yeni bilgi getirmiyorsa, yalnızca "modele bir kez daha düşündürmek"tir. İlgili araştırmalar buna net bir yanıt veriyor. Huang ve arkadaşları, ICLR 2024 makalesi *Large Language Models Cannot Self-Correct Reasoning Yet*'te şunu buldu: GPT-4'e dış geri bildirim olmadan kendi yanıtlarını inceletip düzelttirmek doğruluğu tersine düşürüyor — modelin doğru yanıtı yanlışa çevirme sayısı, yanlış yanıtı doğruya çevirme sayısından daha fazla oluyor.
 
+**Proposer–Reviewer döngüsü:**
+
+```python
+candidate = proposer(task, constraints)
+evidence = execute_or_render(candidate)       # tests, state, screenshot, facts
+review = independent_reviewer(candidate, evidence)
+
+while review.veto and budget_remaining:
+    candidate = proposer.repair(candidate, review.findings)
+    evidence = execute_or_render(candidate)
+    review = independent_reviewer(candidate, evidence)
+
+if review.pass:
+    publish(candidate, evidence, review)
+else:
+    escalate_or_reject(review)
+```
+
 2024'te TACL dergisinde yayımlanan *When Can LLMs Actually Correct Their Own Mistakes?* başlıklı derleme makalesi (arXiv:2406.01297) bu sonucu bir kez daha doğruladı: güvenilir bir dış geri bildirim (test durumlarının yürütme sonuçları, dış araçların doğrulama çıktısı gibi) sağlanmadıkça, tümüyle modelin kendi "öz düzeltmesine" dayanmak neredeyse hiç işe yaramıyor.
 
 ICLR 2024'ün CRITIC makalesi sezgisel bir karşılaştırma deneyi sunuyor. CRITIC, modele kendi yanıtını doğrulamak için dış araçlar (arama motoru, Python yorumlayıcısı) kullandırıyor ve etki belirgin biçimde artıyor; ama deneyciler araçla doğrulama adımını kaldırıp yalnızca modelin öz değerlendirmesini bıraktığında, iyileşmenin büyük kısmı yok oluyor. Bu, incelemenin değerinin "modele bir kez daha düşündürmek"te değil, **modelin üretim anında sahip olmadığı yeni bilgiyi getirmekte** olduğunu gösteriyor — test sonuçları, render edilmiş ekran görüntüleri, derleme hataları, dış arama sonuçları.
@@ -349,13 +302,28 @@ Bir görev beşten fazla alt görev içerdiğinde, dinamik zamanlama gerektirdi�
 
 Sistem tasarımı açısından yönetici modeli, her uzman Agent'ı Manager'ın çağırabileceği bir araç olarak modeller. Manager'ın araç kümesinde yalnızca geleneksel dış araçlar (arama, dosya işlemleri gibi) değil, diğer Agent'ların çağrı arayüzleri de bulunur. Manager, tool calling mekanizmasıyla ilgili Agent'ı başlatır, görev parametrelerini ve gerekli context'i aktarır, tamamlanmasını bekleyip dönen sonucu alır. Manager'ın gözünden bir Agent'ı çağırmakla sıradan bir aracı çağırmak arasında özsel bir fark yoktur — ikisi de istek göndermek ve yanıt almaktan ibarettir. Bu birleşik soyutlama yönetici modeline iyi bir genişletilebilirlik kazandırır: yeni bir yetenek eklemek için yalnızca karşılık gelen Agent'ı geliştirip araç olarak kaydetmek yeterlidir, Manager'ın çekirdek mantığında değişiklik gerekmez. Aynı zamanda doğal olarak heterojenliği destekler — farklı Agent'lar farklı modelleri, prompt'ları, araç kümelerini, hatta farklı donanım ortamlarını kullanabilir.
 
-"Agent'ların birbirine araç olması" soyutlaması Bölüm 4'ün "İş Birliği Araçları" kısmında zaten kurulmuştu: spawn_subagent / send_message / cancel_subagent / list_agents arayüz tasarımı, buradaki Manager'ın alt Agent'ları çağırmasına doğrudan uygulanır. "Manager → alt Agent" yönünde nelerin aktarılacağı için bu bölümün ilerleyen kısmındaki devir paketi tasarımına bakılabilir (görev tanımı, doğrulanmış olgular ve kısıtlar, yapılandırılmış ürünlerin referansları); bunun simetriği ise "alt Agent → Manager" yönünde neyin döndürüleceğidir. Yanıt şudur: **tam trajectory değil, yapılandırılmış özet**. Alt Agent, görevin sonucunu, kilit bulguları, ürünlerin dosya yollarını ve karşılaştığı sorunları döndürmeli, eksiksiz yürütme trajectory'sini kendi loglarında bırakmalıdır. Manager'ın context'i ancak bu şekilde alt görev sayısıyla birlikte patlayarak değil, yavaş ve doğrusal biçimde büyür — aşağıdaki Deney 10-3'te Manager'ın "yalnızca dosya dizinini tutup çeviri içeriğini saklamaması" da bu yöntem gerekçesine dayanır.
 
 Ama yönetici modelinin kendine özgü zorlukları da vardır. Manager sistemin tek noktalı darboğazı hâline gelir — bütün alt görevlerin niteliğini anlamak, doğru Agent'ı seçmek ve context'i eksiksiz aktarmak zorundadır; her karar sapması akışın tamamını etkiler. Ayrıca Manager, görevin bütününe ait küresel context'i tutmalıdır; görev derinleştikçe ve Agent çağrıları arttıkça bu context hızla şişebilir. Bu yüzden Manager'ın prompt kalitesine, context yönetim stratejisine ve görev ayrıştırmasının makul ayrıntı düzeyine ayrıca dikkat etmek gerekir.
 
 2025 tarihli Plan-and-Act makalesi [^plan-and-act-2025] bu konuda ampirik bir analiz sunar: Planner-Executor ikili Agent mimarisinde **zayıf planlayıcı, sistemin en kritik darboğazıdır**. Planner'ın planlama kalitesi yeterince yüksek olduğunda, Executor görece basit olsa bile iyi sonuçlar alınabilir; tersine, Planner'ın görev ayrıştırması hatalıysa sonraki bütün Executor çalışmaları yanlış bir öncüle dayanır. Araştırma, WebArena-Lite benchmark'ında %54 başarı oranına ulaşmıştır ve temel katkısı Executor'ın yürütme yeteneğini değil, tam olarak Planner'ın planlama yeteneğini iyileştirmesidir. Bu bulgunun çıkarımı şudur: en güçlü model ve en özenle tasarlanmış prompt, kaynaklar bütün Agent'lara eşit dağıtılmak yerine Manager'a (planlayıcıya) verilmelidir.
 
-Bu, Bölüm 4'teki bir savla çelişmez. Bölüm 4, öneri modeli ile denetim modelini tartışırken ikisinin yeteneklerinin birbirine yakın olması gerektiğini belirtmişti — ama orada söz konusu olan **denetim senaryosudur**: denetleyici, denetlenenin reasoning'ini takip edebilmelidir ki içindeki açıkları görebilsin; yetenek farkı çok büyükse denetim hiç yürümez. Yönetici modelinde ise başka bir şey tartışılıyor: **planlama ile yürütme arasındaki iş bölümü**. Planlayıcı görevi bir kez yanlış ayrıştırdıktan sonra, yürütücü ne kadar güçlü olursa olsun bunu telafi edemez; bu yüzden en güçlü model ve en özenli prompt öncelikle planlayıcıya verilmelidir. Yürütücüler arasında yetenek dengesi gerekip gerekmediği ise alt görevlerin birbirine ne kadar bağlı olduğuna göre değişir — birden çok yürütücünün ürünleri sonunda tek bir bütün hâlinde birleştirilecekse, en zayıf halka çoğu zaman genel kaliteyi aşağı çeker.
+**İlk doğrulanmış paralel kazanan:**
+
+```python
+workers = launch_independent_workers(subtasks)
+while workers.any_running:
+    event = next_event()
+    if event.type == RESULT:
+        if verify(event.artifact, hidden_checks):
+            if not settle_once(event):       # atomically claim the winner
+                continue
+            broadcast_cancel(to = workers - {event.worker_id})
+            await_all_ack_or_timeout()
+            return assemble(event.artifact, evidence = event.evidence)
+        else:
+            record_failure(event)
+return summarize_failures(workers)
+```
 
 [^plan-and-act-2025]: Erdogan, L. E., et al. *Plan-and-Act: Improving Planning of Agents for Long-Horizon Tasks.* arXiv:2503.09572, 2025.
 
@@ -367,7 +335,7 @@ Bu, Bölüm 4'teki bir savla çelişmez. Bölüm 4, öneri modeli ile denetim mo
 
 Manager, uzman Agent'ları sırayla birbiri ardına çağırır; her Agent tamamlandığında sonucunu döndürür, Manager da bir sonraki adıma karar verir. Kontrol akışı doğrusal, basit ve nettir; alt görevler arasında açık bir öncelik-sonralık bağımlılığı bulunan senaryolara uygundur.
 
-> **Deney 10-3 ★★: Kitap Çeviri Agent'ı**
+> **Deney 10-2 ★★: Kitap Çeviri Agent'ı**
 >
 > Kitap çevirisi, çoklu Agent iş birliği gerektiren tipik bir karmaşık görevdir. Teknik bir kitabı çevirmek yalnızca metni bir dilden diğerine aktarmak değildir; uzmanlık terimlerinin kitap boyunca tutarlı olmasını, bağlamın doğru yansıtılmasını ve okuma akıcılığının bütünde korunmasını da gerektirir. Örneğin büyük dil modelleriyle ilgili İngilizce bir kitabı çevirirken çok sayıda terim defalarca geçer, bunların birden fazla yerleşik karşılığı olabilir ve kitabın tamamında tek bir karşılıkta birleşilmesi gerekir — birinci bölümde agent "智能体" (akıllı varlık) diye çevrildiyse, sonraki bölümlerde "代理" (vekil) diye değiştirilemez.
 >
@@ -407,7 +375,7 @@ Birden çok alt görev paralel yürütülebiliyorsa sıralı model verimsiz kal�
 
 [^lingtai]: Lingtai resmî eğitimi: https://lingtai.ai/zh/tutorial/
 
-> **Deney 10-4 ★★★: Telefonla Konuşurken Bilgisayar Kullanan Agent**
+> **Deney 10-3 ★★★: Telefonla Konuşurken Bilgisayar Kullanan Agent**
 >
 > **Ön koşul**: Bu deney, Bölüm 9'daki Computer Use ve sesli Agent teknolojilerini bir arada kullanır; önce Bölüm 9'un ilgili deneylerini tamamlamanız önerilir.
 >
@@ -433,9 +401,9 @@ Birden çok alt görev paralel yürütülebiliyorsa sıralı model verimsiz kal�
 > 3. Gerçekten paralel çalışıldığından, bilgi toplama ile form doldurmanın eşzamanlı yürüdüğünden emin olun
 > 4. İstisnai durumları ele alın
 >
-> **Deney 10-5 ★★★: Kendi Kendini Düzenleyen Telefon ve Bilgisayar Agent'ları**
+> **Kendi Kendini Düzenleyen Telefon ve Bilgisayar Agent'ları**
 >
-> Deney 10-4'te ikili Agent'ın iş birliği mimarisi önceden tasarlanmıştı. Bu deney bir adım daha ileri gidip **Agent'ın kendi kendini düzenleme yeteneğini** araştırır — iş birliği akışını insan önceden planlamaz, yeni bir iş birlikçi Agent'ın ne zaman başlatılacağına Agent kendi karar verir.
+> Deney 10-3'te ikili Agent'ın iş birliği mimarisi önceden tasarlanmıştı. Bu deney bir adım daha ileri gidip **Agent'ın kendi kendini düzenleme yeteneğini** araştırır — iş birliği akışını insan önceden planlamaz, yeni bir iş birlikçi Agent'ın ne zaman başlatılacağına Agent kendi karar verir.
 >
 > **Senaryo**: Kullanıcı "bu sitede kaydımı tamamlamama yardım et" der; URL'yi verir ama hangi bilgilerin doldurulacağını söylemez. Manager Agent, Computer Use aracıyla siteye girer ve kayıt sayfasını yükler.
 >
@@ -447,7 +415,7 @@ Birden çok alt görev paralel yürütülebiliyorsa sıralı model verimsiz kal�
 >
 > Çağrıdan sonra sistem Phone Agent'ı yaratır ve ona net bir görev context'i verir: form doldurmaya yardım için başlatıldığı, hangi bilgilerin toplanacağı ve her alanın biçim gereksinimleri.
 >
-> İki Agent hemen ardından gerçek zamanlı iş birliği kipine geçer ve Deney 10-4'teki asenkron paralellik mekanizmasını kullanır. Phone Agent kullanıcıyla tarayıcı üzerinden bir WebRTC ses oturumu başlatır ve soruları tek tek sorar: "Merhaba, kayıt formunuzu doldurmanıza yardım ediyorum. Öncelikle adınızı öğrenebilir miyim?" Kullanıcı yanıtladığı anda Computer Agent'a `{"type": "info_collected", "field": "Ad", "value": "Zhang San"}` gönderilir; Computer Agent da web sayfasında "Ad" alanını bulup doldurur. Bu sırada Phone Agent bilgisayardaki işlemin bitmesini beklemeden bir sonraki soruya geçer. **Bir sor, bir doldur** biçimindeki bu düzen — yani konuşma akışının işlem gecikmesiyle bloke olmaması — deneyin temel gereksinimidir. Bütün bilgiler toplandıktan sonra Phone Agent `{"type": "task_completed"}` gönderir, Computer Agent da formu gönderir. Burada “telefon”, gerçek zamanlı ses etkileşimi anlamına gelir; PSTN erişimi veya E.164 numarası gerekmez. Deney için yerel bir WebRTC sayfası yeterlidir; uzaktan dağıtımda ağ ortamının gerektirdiği sinyalleşme ve TURN eklenebilir.
+> İki Agent hemen ardından gerçek zamanlı iş birliği kipine geçer ve Deney 10-3'teki asenkron paralellik mekanizmasını kullanır. Phone Agent kullanıcıyla tarayıcı üzerinden bir WebRTC ses oturumu başlatır ve soruları tek tek sorar: "Merhaba, kayıt formunuzu doldurmanıza yardım ediyorum. Öncelikle adınızı öğrenebilir miyim?" Kullanıcı yanıtladığı anda Computer Agent'a `{"type": "info_collected", "field": "Ad", "value": "Zhang San"}` gönderilir; Computer Agent da web sayfasında "Ad" alanını bulup doldurur. Bu sırada Phone Agent bilgisayardaki işlemin bitmesini beklemeden bir sonraki soruya geçer. **Bir sor, bir doldur** biçimindeki bu düzen — yani konuşma akışının işlem gecikmesiyle bloke olmaması — deneyin temel gereksinimidir. Bütün bilgiler toplandıktan sonra Phone Agent `{"type": "task_completed"}` gönderir, Computer Agent da formu gönderir. Burada “telefon”, gerçek zamanlı ses etkileşimi anlamına gelir; PSTN erişimi veya E.164 numarası gerekmez. Deney için yerel bir WebRTC sayfası yeterlidir; uzaktan dağıtımda ağ ortamının gerektirdiği sinyalleşme ve TURN eklenebilir.
 >
 > **Deney gereksinimleri**:
 > 1. Phone Agent'ı başlatmaya kendi karar verebilen bir Computer Use Agent uygulayın
@@ -459,11 +427,11 @@ Birden çok alt görev paralel yürütülebiliyorsa sıralı model verimsiz kal�
 > ![Şekil 10-8: Phone ve Computer İkili Agent Mimarisi](images/fig10-8.svg)
 >
 >
-> **Deney 10-6 ★★★: Aynı Anda Birden Çok Siteden Bilgi Toplayan Agent**
+> **Deney 10-4 ★★★: Aynı Anda Birden Çok Siteden Bilgi Toplayan Agent**
 >
 > **Ön koşul**: Önce Bölüm 4'teki olay güdümlü yapıyı ve kesme mekanizmasını gözden geçirmeniz önerilir.
 >
-> Bu deney, çoklu Agent paralel yürütmesinin bilgi toplama senaryolarındaki uygulamasını araştırır. İki heterojen Agent'ın iş birliğine odaklanan Deney 10-4 ve Deney 10-5'ten farklı olarak burada odak, **birden çok türdeş Agent'ın paralel araması** ve merkezî koordinasyonla verimli görev tamamlama ile kaynak optimizasyonunun nasıl sağlanacağıdır.
+> Bu deney, çoklu Agent paralel yürütmesinin bilgi toplama senaryolarındaki uygulamasını araştırır. İki heterojen Agent'ın iş birliğine odaklanan Deney 10-3'ten farklı olarak burada odak, **birden çok türdeş Agent'ın paralel araması** ve merkezî koordinasyonla verimli görev tamamlama ile kaynak optimizasyonunun nasıl sağlanacağıdır.
 >
 > **Problem**: Bir üniversitenin birden çok fakülte sitesi verilir; her fakültenin öğretim üyesi rehberi sayfalarında belirtilen öğretim üyesi (örneğin "Zhang Wei") aranacak, bulunduğunda kişinin fakültesi, unvanı, araştırma alanı gibi bilgiler döndürülecektir.
 >
@@ -492,49 +460,45 @@ Birden çok alt görev paralel yürütülebiliyorsa sıralı model verimsiz kal�
 >
 >
 
-### Merkezsiz Model: Eşler Arası Devir
+### Merkezsiz model
 
+Merkezî denetleyiciyi kaldırmanın amacı insan örgütlerini örnek almaktır: eşit roller işi bölüşür ve birbirini denetler; her Agent görevi ne zaman devredeceğine, geri bildirim isteyeceğine veya çelişki bildireceğine kendi karar verir. Böylece Manager'ın çökmesiyle oluşan tek hata noktası da azalır. Microservices alanında iki seçenek **orchestration** ve **choreography** diye adlandırılır.
 
-![Şekil 10-10: Handoff Zincir Modeli](images/fig10-10.svg)
+Aşağıdaki örnekler iletişimin gevşek bağlanmasından kontrol akışının merkezsizleşmesine ilerler: MetaGPT sabit bir pipeline'dır, AutoGen group chat paylaşılan konuşmayı merkezî zamanlamayla birleştirir, OpenAI Swarm ise handoff kararlarını eş Agent'lara dağıtır.
 
+**Merkeziyetsiz handoff protokolü:**
 
-Yönetici modeli net bir kontrol yapısı ve küresel bir görüş alanı sunar; merkezsiz model onun kusurlarını onarmak için ortaya çıkmış değildir. Merkezî denetleyiciyi ortadan kaldırmanın asıl gerekçesi, insan toplumunun örgütlenme biçimini taklit etmektir: sorumluluk bakımından eşit birden çok rol iş bölümü yapsın ve birbirini dengelesin, her biri soruna kendi uzmanlık açısından baksın ve kiminle iletişim kuracağına kendisi karar versin — bütün yargı tek bir Manager'da toplanmasın. Mikroservis dünyası bu ikiliye **orkestrasyon** (orchestration) ve **koreografi** (choreography) adını verir: birincisinde bir şef her şeyi tek elden yönetir, ikincisinde her dansçı sahneye giriş anını kendisi ayarlar.
+```python
+handoff = {
+    task_id, sender, recipient, goal, constraints,
+    accepted_facts, artifact_refs, remaining_budget,
+    visited_agents
+}
 
-Merkezsiz model başka bir mimari düşünce sunar: **tek bir merkezî denetleyici yoktur, Agent'lar birbiriyle eşit biçimde iş birliği yapar**. Her Agent kendi uzmanlık değerlendirmesine göre başka bir Agent'la ne zaman iletişime geçeceğine kendisi karar verir — bu bir görev devri olabilir ("benim kısmım bitti, sana devrediyorum"), bir geri bildirim isteği olabilir ("bu çözüm teknik olarak yapılabilir mi?") ya da bir sorun bildirimi olabilir ("verdiğin gereksinimlerde çelişki var, yeniden konuşmamız gerekiyor").
+if recipient in handoff.visited_agents:
+    reject("cycle")
+elif handoff.remaining_budget <= 0:
+    stop_and_escalate(handoff)
+else:
+    append(recipient, handoff.visited_agents)
+    run_local_agent(handoff)
+```
 
-Aşağıdaki üç örnek bilinçli olarak "sahteden gerçeğe" giden bir sıraya dizilmiştir: MetaGPT'nin kontrol akışı aslında sabit bir üretim bandıdır (sahte merkezsizlik, yalnızca iletişim mekanizmasında ayrışma sağlar), AutoGen group chat paylaşılan konuşma kaydı ile merkezî zamanlamanın melez bir biçimidir; kontrol akışında gerçek anlamda eşler arası merkezsizliğe ancak OpenAI Swarm ulaşır.
+**MetaGPT: SOP güdümlü yazılım şirketi simülasyonu.**
 
-**Context paylaşılmadığında devirde ne aktarılır?** Şekil 10-10'daki Handoff zincir modeli, Deney 10-2'deki `transfer_to_agent` ile doğrudan bir karşıtlık oluşturur: ikincisinde devir paylaşılan context altında yapılır, yeni rol bütün geçmişi otomatik olarak devralır, hiçbir tasarım gerekmez; birincisinde ise devir context paylaşılmadan yapılır ve devreden taraf neyi aktaracağına açıkça karar vermek zorundadır. Uygulamada işe yarayan bir "devir paketi" genelde üç parçadan oluşur: **görev tanımı** (alıcı ne yapacak, kabul ölçütü nedir), **doğrulanmış olgular ve kısıtlar** (kullanıcı tercihleri, iş kuralları, önceki aşamalarda karara bağlanmış hususlar) ve **yapılandırılmış ürünlerin referansları** (dosyanın içeriği değil, dosya yolu; alıcı gerektikçe okur). Bilinçli olarak aktarılmayan şey ise tam trajectory'dir — devredenin deneme yanılmaları, ara düşünceleri ve başarısız girişimleri alıcı için çoğunlukla gürültüden ibarettir. İki devir biçimi arasındaki asıl fark da budur: paylaşılan context'li devir bütün geçmişi korur, bilgi kaybı sıfırdır ama context durmadan şişer; context paylaşmayan devir ise damıtılmış bir devir paketi aktarır, bilgi kaybı vardır ama her Agent temiz ve odaklı bir context içinde çalışır. Hiçbir Agent'ın diğerinin "düşünme sürecini" anlaması gerekmez; yalnızca devir paketinin ve üretilen ürünlerin biçimini ve anlamını anlaması yeter — arayüz temelli bu iş birliği, yazılım mühendisliğindeki sözleşmeye dayalı tasarım (design by contract) ilkesinden esinlenir.
+![Şekil 10-11 MetaGPT çoklu Agent iş birliği ağı](images/fig10-11.svg)
 
-**MetaGPT: SOP güdümlü yazılım şirketi simülasyonu (üretim bandından ayrışmış iletişime geçiş örneği).**
+MetaGPT bir yazılım şirketinin standart çalışma prosedürlerini kodlar. Roller Product Manager → Architect → Project Manager → Engineer → QA sırasıyla çalışır ve her biri yapılandırılmış bir devir paketi üretir: görev ile kabul ölçütleri, doğrulanmış olgular ve kısıtlar, dosya yolları gibi ürün referansları. Roller ortak mesaj havuzuna yayın yapar ve yalnızca abone oldukları türleri alır. Gönderen ile alıcı gevşek bağlanır, ancak kontrol akışını SOP sabitler; MetaGPT tümüyle merkezsiz değildir.
 
+**AutoGen group chat.** Bütün Agent'lar aynı ortak kaydı görür, fakat sonraki konuşmacıyı `GroupChatManager` seçer. Bu, paylaşılan context ile merkezî zamanlamanın karışımıdır.
 
-![Şekil 10-11: MetaGPT Çoklu Agent İş Birliği Ağı](images/fig10-11.svg)
+**OpenAI Swarm.** Her Agent merkezî zamanlayıcı olmadan kontrolü doğrudan başka bir Agent'a devredebilir. Kontrol bayrak yarışı sopası gibi dolaşır; ancak A → B → A döngüsü oluşabileceğinden handoff sayısına sınır gerekir.
 
+> 2025'ten beri “Agent Swarm” birden fazla mimariyi anlatır: OpenAI Swarm benzeri merkezsiz handoff ağı veya Kimi K2.5/K3 ve AgentEnv'de olduğu gibi ana Agent'ın çok sayıda paralel alt Agent oluşturduğu büyük ölçekli Manager modeli[^ch10-kimi-swarm]. Anthropic ve Manus'ın çoklu Agent araştırma sistemleri de orchestrator-worker topolojisindedir.
 
-MetaGPT'nin temel kavrayışı şudur: insan yazılım şirketlerinin biriktirdiği **standart işletim prosedürleri** (SOP, Standard Operating Procedure) zaten defalarca sınanmış birer iş birliği protokolüdür — SOP'yi çoklu Agent sistemine kodladığınızda her rol, üretim bandındaki uzmanlaşmış bir işçi gibi standartlaşmış çıktılar üretir ve bu çıktılar doğal olarak roller arası iletişim arayüzünü oluşturur.
+Merkezsiz modelin sonraki evrimi Agent toplumudur.
 
-MetaGPT'de roller sabit bir sırayla çalışır (Product Manager → Architect → Project Manager → Engineer → QA) ve her rol yapılandırılmış bir ürün çıkarır:
-
-- **Product Manager Agent**: Gereksinim tanımını alır, yapılandırılmış bir PRD üretir (ürün gereksinim belgesi; işlev listesi, kullanıcı hikâyeleri, kabul ölçütleri ve öncelik sıralaması içerir)
-- **Architect Agent**: PRD'yi okur, mimari kararları verir (teknoloji yığını seçimi, modüllere ayırma, arayüz tanımları, veri modeli tasarımı) ve tasarım belgesini çıkarır
-- **Project Manager Agent**: Mimari tasarımı okur, sistemi somut bir görev listesine ve dosya düzeyinde iş bölümüne ayırır, modüller arası bağımlılık sırasını netleştirir, sonra görevleri mühendislere dağıtır
-- **Engineer Agents**: Tasarım belgesini okur, sorumlu olduğu modülü uygular ve kodu çıkarır. Birden çok örnek paralel çalışabilir
-- **QA Engineer Agent**: Kodu ve PRD'yi okur, test senaryoları üretir, testleri çalıştırır, hataları kaydeder ve test raporunu çıkarır
-
-MetaGPT'nin merkezsiz iletişime asıl katkısı bilgi aktarım mekanizmasındadır: **paylaşılan mesaj havuzu + role göre abonelik**. Her rol yapılandırılmış mesajları bütün rollerin görebildiği bir mesaj havuzuna yayımlar; diğer roller de kendi abonelik ayarlarına göre yalnızca kendi sorumluluk alanıyla ilgili mesajları alır — noktadan noktaya, birebir haber taşımak yerine. Yayımlayanın kendi çıktısını kimin tüketeceğini bilmesi gerekmez; yeni bir rol eklemek için yalnızca hangi mesaj türlerine abone olacağını bildirmesi yeterlidir, mevcut rollerin hiçbirinde değişiklik gerekmez. Bu gerçek bir ayrışma getirir: örneğin Product Manager'ı daha güçlü bir modelle değiştirdiğinizde, yayımladığı PRD standarda uygun kaldığı sürece diğer Agent'ların hiçbirinde değişiklik gerekmez.
-
-MetaGPT'deki yinelemeli iyileştirme ise başlıca mühendislik halkasında gerçekleşir; mekanizması **çalıştırılabilir geri bildirimdir** (executable feedback): Engineer kendi yazdığı kodu ve testleri çalıştırır, aldığı hatalara ve başarısız sonuçlara göre bir hata ayıklama döngüsüne girer ve testler geçene kadar sürdürür — düzeltmeyi başka bir Agent'ın görüşü değil, deterministik yürütme sonucu yönlendirir.
-
-Dürüstçe belirtmek gerekir ki MetaGPT **kontrol akışı** bakımından merkezsiz değildir — rol sırası SOP tarafından önceden sabitlenmiştir ve bütün yapı bir üretim bandına daha yakındır (Bölüm 1'in diliyle söylersek bir iş akışıdır). Buraya alınmasının nedeni, mesaj havuzu ve abonelik temelli iletişim mekanizmasının merkezsiz sistemlerin en kritik tasarım öğesini, yani ayrışmayı göstermesidir. "QA'nın doğrudan Product Manager'a gidip gereksinimi netleştirmesi" ya da "Engineer'ın Architect'e gidip alternatif bir çözümü tartışması" gibi çok yönlü dinamik geri bildirimler ise bu mimarinin doğal bir uzantısı olarak düşünülebilir; özgün MetaGPT bunları uygulamamıştır.
-
-**AutoGen group chat: paylaşılan konuşma kaydı + merkezî zamanlama.** AutoGen'in group chat'i birden çok Agent'ın aynı konuşmaya katılmasını sağlar: her turda bir "konuşmacı seçici" bir sonraki söz alacak Agent'ı belirler — bu seçici basit bir sırayla dönme kuralı olabileceği gibi, güncel konuşma içeriğine bakıp kimin devam etmesinin en uygun olduğuna karar veren bir LLM de olabilir; herhangi bir Agent'ın söyledikleri bütün katılımcılara görünür. Dürüstçe söylemek gerekirse bu, kontrol akışı anlamında tam merkezsiz bir sistem değildir: konuşmacı seçimi merkezî bir GroupChatManager tarafından tek elden karara bağlanır ve "sıranın kimde olduğu" başlı başına bir kontrol akışı kararıdır. Bu yüzden daha doğru tanımı **"paylaşılan konuşma kaydı + merkezî zamanlama" melez biçimidir** — bütün Agent'lar aynı ortak konuşma kaydını görür, ama her biri kendi system prompt'unu ve araç kümesini korur, zamanlama yetkisi ise seçicinin elinde toplanır. Bu model, çok açılı tartışma gerektiren ve konuşma sırası önceden sabitlenemeyen görevlere uygundur (çözüm değerlendirmesi, disiplinler arası analiz gibi); bedeli ise konuşmanın dağılabilmesidir — herkes konuşurken bütünün ilerlememesi, yani eşzamanlılık dünyasındaki canlı kilit (livelock) durumu — bu yüzden sonlandırma koşullarının özenle tasarlanması gerekir. Bu bölümün boyut ayrımına göre, buraya zamanlama mekanizması (merkezî seçici) gerekçesiyle yerleştirilmiştir; oysa context boyutunda paylaşılan ile paylaşımsız arasında, melez bir konumdadır — bu da topoloji ile context paylaşımının kavramsal olarak bağımsız ve birbirinden farklı biçimlerde eşleştirilebilen iki boyut olduğunu bir kez daha gösterir.
-
-**OpenAI Swarm ve Agents SDK: handoff ağı.** Buna karşılık kontrol akışında gerçekten eşler arası merkezsizliğe ulaşan örnek, OpenAI'ın Swarm'ıdır (ve onun devamı olan Agents SDK): merkezsizliği en yalın biçime indirger — her Agent birkaç handoff (devir) seçeneğiyle donatılır ve kontrolü herhangi bir anda ağdaki başka herhangi bir Agent'a devredebilir. Müşteri hizmetlerinde ön eleme yapan Agent sorunun iade ile ilgili olduğuna karar verirse iade Agent'ına devreder; iade Agent'ı işlem sırasında sorunun teknik bir arıza olduğunu görürse teknik destek Agent'ına devredebilir. Sistemde merkezî bir zamanlayıcı yoktur, kontrol bir bayrak yarışı çubuğu gibi eşit Agent'lar arasında elden ele geçer ve yönlendirme kararı tümüyle her Agent'ın kendi değerlendirmesine dağılır — asıl temiz "eşler arası devir" budur ve Şekil 10-10'da gösterilen zincirleme devir modelinin mühendislik karşılığıdır. Eşler arası devrin riski ise döngüye girmektir: A, B'ye devreder, B de A'ya geri devreder ve görev döngü içinde boşa döner; bu yüzden devir sayısı üst sınırı gibi koruyucu mekanizmalarla döngünün kırılması gerekir.
-
-> **Terminoloji notu: Agent Swarm.** 2025'ten bu yana "Agent Swarm" (Agent sürüsü) üreticilerin gözde terimi hâline geldi, ama tek bir mimariye karşılık gelmez. Sektördeki kullanım kabaca ikiye ayrılır: birincisi, OpenAI Swarm tarzı handoff ağlarıdır (LangGraph'ın swarm kütüphanesi ve Microsoft Agent Framework'ün handoff orkestrasyonu da böyledir) ve bu kısmın merkezsiz modeline karşılık gelir; ikincisi, bazı önde gelen ticari ürünlerdeki Agent Swarm ölçeklenmiş bir yönetici modelidir: Kimi K2.5 ile ilk kez sunulan Agent Swarm'da ana Agent paralel çalışan yüzlerce alt Agent'ı dinamik olarak yaratır; "ne zaman bölüneceği, kaç parçaya bölüneceği" orkestrasyon kararları paralel Agent pekiştirmeli öğrenmesiyle doğrudan modele işlenir; K3 bunu bağımsız bir model kademesi olarak sürdürmüş ve beraberindeki paralel Agent eğitim sandbox'ı AgentEnv'yi açık kaynak hâline getirmiştir[^ch10-kimi-swarm]; Anthropic'in çoklu Agent araştırma sistemi ile Manus'un Wide Research'ü de aynı orchestrator-worker yıldız topolojisine girer. Okurların bu kitabı okuduktan sonra kavramların ardındaki özü görebilmesini ve çoklu Agent sistemlerini ilk ilkeler açısından çözümleyebilmesini umuyoruz.
-
-[^ch10-kimi-swarm]: Moonshot AI, *Kimi Agent Swarm: 100 Sub-Agents at Scale*, 2026, https://www.kimi.com/blog/agent-swarm; GTC 2026'da paralel alt Agent üst sınırının 300'e genişletildiği açıklanmıştır; AgentEnv, Moonshot AI ile KVCache.ai'nin iş birliğiyle açık kaynak yapılan bir Agent eğitim sandbox'ıdır ve Kimi K3 ile birlikte Temmuz 2026'da yayımlanmıştır.
+[^ch10-kimi-swarm]: Moonshot AI, *Kimi Agent Swarm: 100 Sub-Agents at Scale*, 2026, https://www.kimi.com/blog/agent-swarm. GTC 2026'da sınırın 300 alt Agent'a çıktığı açıklandı; AgentEnv Temmuz 2026'da Kimi K3 ile yayımlandı.
 
 ### Kurumlar Arası İş Birliği: A2A Protokolü
 
@@ -582,9 +546,9 @@ Somut uygulaması şöyledir: her dosya için bir sürüm numarası (ya da son d
 
 Eşzamanlılık çakışmaları dosya düzeyinde sorunlardır ve işletim sistemlerinin birikimi bunları karşılamaya yeter; hataların kademeli büyümesi ise süreç benzetmesinin geçersizleştiği yerde ortaya çıkar — süreçler arasında bayt aktarılır ve her bit birebir korunur, Agent'lar arasında ise anlam aktarılır ve her yeniden anlatım kayıplı bir yeniden kodlamadır. Birden çok Agent sık sık etkileştiğinde, bir Agent'ın hatası sonraki Agent'lar tarafından kat kat pekiştirilebilir; tıpkı "kulaktan kulağa" oyununda bilginin her aktarımda biraz daha bozulması gibi.
 
-Somut bir senaryoyla açıklayalım. Diyelim ki bir çeviri sistemi yönetici modelini kullanıyor (Deney 10-3'ün mimarisi) ve Manager teknik bir kitabı bölümlere ayırıp birden çok çeviri Agent'ına dağıtıyor:
+Somut bir senaryoyla açıklayalım. Diyelim ki bir çeviri sistemi yönetici modelini kullanıyor (Deney 10-2'ün mimarisi) ve Manager teknik bir kitabı bölümlere ayırıp birden çok çeviri Agent'ına dağıtıyor:
 
-```
+```text
 Terim Agent'ı: "reasoning" terimini "推理" diye çeviriyor, ama "推理" Çincede daha çok inference için kullanılıyor; belirsizlik var
         ↓ glossary.json dosyasına yazar
 Çeviri Agent'ı A: İkinci bölümü çeviriyor, terim tablosundan okuyor, "reasoning tokens" ifadesini "推理 token" diye çeviriyor
@@ -595,13 +559,21 @@ Redaksiyon Agent'ı: Kitabın tamamında tek tip "推理" kullanıldığını g�
 
 Sorun nerede? "reasoning" (modelin düşünme süreci) ile "inference" (modelin ileri yönlü hesabı, yani dağıtımdaki çalışması) iki ayrı kavramdır; ama terim Agent'ı en başta reasoning'i "推理" diye çevirdiği için, sonraki Agent'lar inference ile karşılaştıklarında doğal olarak aynı sözcüğü seçti — iki farklı kavram tek bir karşılıkta birleşti ve okur bunları birbirinden ayıramayacak. Doğru olan, reasoning'i "思考" (düşünme), inference'ı ise "推理" (çıkarım) diye çevirmektir. Oysa redaksiyon Agent'ı kitabın tamamında "推理" sözcüğünün "tek tip" kullanıldığını görünce, tersine, çeviri kalitesini çok yüksek saydı.
 
-Tek bir terim hatası üç Agent üzerinden yayıldıktan sonra, "tutarlılık" sayesinde daha yüksek bir güvenilirlik kazandı. Bu kitabın reasoning = 思考, inference = 推理 çeviri kuralını benimsemesinin (girişte açıklanmıştır) nedeni de tam budur: belirsizliği farklı Çince sözcükler kullanarak ortadan kaldırmak. Şunu vurgulamakta yarar var: buradaki "hata" ille de bir halüsinasyon değildir — yukarıdaki örneğin kaynağı aslında hatalı bir terim kararıdır, ama yine de "tutarlılık" yoluyla kat kat büyütülmüştür. Kaynak gerçekten bir halüsinasyon olsaydı bile (örneğin Deney 10-3'te çeviri Agent'ının dikkati dağıldığı için var olmayan bir terim kuralını "hatırlaması" gibi), büyütme mekanizması tıpatıp aynı olur, sonuçları ise yalnızca daha ağır olurdu. Bu hata büyütme zinciri yönetici modelinde ayrıca tehlikelidir — Manager, bir alt Agent'ın hatalı özetine dayanarak bir zamanlama kararı verdiyse, sonraki bütün alt Agent'ların işi yanlış bir öncüle dayanabilir.
+Tek bir terim hatası üç Agent üzerinden yayıldıktan sonra, "tutarlılık" sayesinde daha yüksek bir güvenilirlik kazandı. Bu kitabın reasoning = 思考, inference = 推理 çeviri kuralını benimsemesinin (girişte açıklanmıştır) nedeni de tam budur: belirsizliği farklı Çince sözcükler kullanarak ortadan kaldırmak. Şunu vurgulamakta yarar var: buradaki "hata" ille de bir halüsinasyon değildir — yukarıdaki örneğin kaynağı aslında hatalı bir terim kararıdır, ama yine de "tutarlılık" yoluyla kat kat büyütülmüştür. Kaynak gerçekten bir halüsinasyon olsaydı bile (örneğin Deney 10-2'te çeviri Agent'ının dikkati dağıldığı için var olmayan bir terim kuralını "hatırlaması" gibi), büyütme mekanizması tıpatıp aynı olur, sonuçları ise yalnızca daha ağır olurdu. Bu hata büyütme zinciri yönetici modelinde ayrıca tehlikelidir — Manager, bir alt Agent'ın hatalı özetine dayanarak bir zamanlama kararı verdiyse, sonraki bütün alt Agent'ların işi yanlış bir öncüle dayanabilir.
 
 Bu zinciri kırmanın anahtarı **çapraz doğrulamadır**. Mesele daha çok Agent'ı aynı düşünce zincirine katmak değil, bir Agent'ın sonucu **bağımsız bir bakış açısıyla** yeniden incelemesidir: önceki Agent'ların düşünme sürecine bakmadan, yalnızca özgün kanıtla nihai sonucun birbirini tutup tutmadığına bakmak. Bu, Bölüm 5'te ele alınan proposer-reviewer mekanizmasının çoklu Agent senaryosuna uzanmış hâlidir: Reviewer'ın değeri yalnızca kod hatalarını ya da biçim sorunlarını bulmakta değildir; bağımsız bir yargıç olarak, düşünce zincirinin tamamında toplu hâlde gözden kaçırılan çelişkileri fark edebilmesindedir. Yüksek riskli kararlar için ayrıca dış doğrulama araçlarına başvurulabilir; örneğin birim testleri, derleyici ve veritabanı sorguları gibi deterministik araçların verdiği geri bildirim halüsinasyondan etkilenmez ve en güvenilir "zincir kırıcıdır".
 
 Erken sonlandırmanın simetrik bir karşıtı vardır: **döngünün kontrolden çıkması**. Yukarıdaki "eşler arası iş birliği" kısmında anlatılan, "döngü gerekirken döngüye girilmemesiydi" — Agent işi yarılamışken duruyordu; burada ise "döngünün hiç durmadan dönüp işleri gitgide kötüleştirmesine" karşı da korunmak gerekiyor. Sektör, Loop mühendisliği uygulamalarında üç tipik başarısızlık kalıbı derledi: birincisi **token maliyetinin kontrolden çıkmasıdır** — döngü başında kimse yokken saatlerce koşar, bütçenin büyük bölümünü yakar ve kimsenin istemediği bir yığın kod üretir; ikincisi **anlama borcudur** (comprehension debt) — döngü kodu ne kadar hızlı teslim ederse, mühendisin sistemin gerçekte nasıl uygulandığına dair anlayışı o kadar geride kalır; insan müdahalesi zorunlu hâle geldiğinde artık kimse kendi sistemini anlayamaz durumdadır; üçüncüsü ise **bilişsel teslimiyettir** (cognitive surrender) — tasarımcı işi döngünün yapmasına alışır, bağımsız düşünmeyi ve denetlemeyi yavaş yavaş bırakır, kalite de sarmal biçimde düşer. Üçünün panzehri, hata büyütme zincirini kırmakla aynı damardandır: açık bütçeler ve sonlandırma koşulları, gerçek gözlemlere kök salmış doğrulayıcılar ve insanın her zaman "başlat tuşuna basan kişi" değil, "döngünün mühendisi" rolünde kalması.
 
 Buraya kadarki bütün tartışma mühendislik bakışıyla yürüdü — bir grup Agent'ın bir görevi iş birliğiyle nasıl tamamlayacağı. Şimdi bakış açısı değişiyor: çok sayıda Agent uzun süre bir arada var olduğunda ve artık tek bir hedefle güdülenmediğinde ortaya ne çıkar? Bu kısım öncü bir araştırma alanıdır; mühendislik okurları seçerek okuyabilir.
+
+### Başarısızlık Kalıbı Üç: Erken Sonlandırma ve Kontrolden Çıkan Döngüler
+
+Erken sonlandırmanın karşı ucunda **kontrolsüz bir döngü** bulunur. Döngü süresiz çalışabilir veya token bütçesini tüketebilir. Yürütmeyi sınırlı tutmak için açık bütçeler, iptal mekanizması ve durma koşulları gerekir.
+
+### Başarısızlık Kalıbı Dört: Anlama Borcu ve Bilişsel Teslimiyet
+
+Bir döngü kodu ne kadar hızlı teslim ederse mühendisin anlayışı uygulamanın o kadar gerisinde kalabilir. Sonunda insan sistemi anlamamaya veya bağımsız incelemeyi bırakmaya başlayabilir. Gerçek gözlemlere dayanan doğrulayıcılar ve insanın döngünün sorumlu mühendisi olarak kalması çözümü oluşturur.
 
 ## Agent Toplumu
 
@@ -645,7 +617,7 @@ Bu sonucun kilit noktası "Agent'ın parti düzenleyebilmesi" değildir — birk
 
 Makale, bilgi yayılımının yanı sıra ölçülebilir iki beliriş olgusu daha raporluyor. Birincisi **ilişki belleğidir**: Agent başkalarıyla geçmişte yaptığı konuşmaları hatırlar ve sonraki etkileşimlerde bunlara atıf yapar — örneğin bir Agent, başka bir Agent'ın bir fotoğraf projesi hazırladığını öğrenirse, birkaç gün sonra tekrar karşılaştığında projenin ilerleyişini kendiliğinden sorar; bu tür etkileşimler biriktikçe kasabanın toplumsal ağının yoğunluğu simülasyon süresince gözle görülür biçimde arttı. İkincisi **randevuda buluşmanın koordinasyonudur**: partinin gerçekleşebilmesi, Isabella'nın kendi kararıyla davet edip mekânı hazırlatmasına ve davet edilenlerin kendi kararlarıyla zaman ayırıp gelmesine dayanıyordu; birden çok Agent merkezî bir komuta olmadan zaman ve mekân üzerinde hizalandı. Bu davranışların hiçbiri önceden programlanmamıştır; hepsi Agent'ların bellek, reflection ve toplumsal sağduyuya dayanarak kendi başlarına yürüttükleri akıl yürütmenin sonucudur.
 
-> **Deney 10-7 ★: Stanford AI Kasabasını Çalıştırmak**
+> **Deney 10-5 ★: Stanford AI Kasabasını Çalıştırmak**
 >
 > **Deney adımları**:
 > 1. `https://github.com/joonspk-research/generative_agents` deposunu klonlayın, ortamı yapılandırın
@@ -707,9 +679,9 @@ Pinchwork ve RentAHuman birlikte **piyasa mekanizmasına dayalı koordinasyonu**
 
 Kurt adam, bu kısımdaki üç boyuttan **stratejik oyunu** temsil eder: kural kısıtları ve bilgi asimetrisi koşullarında Agent'ın akıl yürütmesi, kılık değiştirmesi ve kılık değiştirmeyi deşifre etmesi gerekir. Bu kısmın başındaki Stanford kasabasıyla mimari açıdan bir karşıtlık oluşturur — kasaba tümüyle merkezsiz ve serbest bir etkileşimdir, kurt adam ise "hakem + bilgi erişim denetimi" biçiminde merkezî bir tasarım kullanır: kod güdümlü bir hakem küresel durumu elinde tutar ve her role yalnızca bilmesi gereken bilgiyi dağıtır. Bu da bu bölümdeki iki mimari türünün Agent toplumu senaryolarındaki farklı kullanımlarını tam olarak gösterir.
 
-> **Deney 10-8 ★★★: Sesli Kurt Adam Agent Sistemi**
+> **Deney 10-6 ★★★: Sesli Kurt Adam Agent Sistemi**
 >
-> Kurt adam, akıl yürütme, aldatma ve toplumsal stratejiyi sınayan klasik bir sosyal çıkarım oyunudur. Bu deneyde AI Agent'lar bir insanla veya bağımsız bir LLM kullanıcı simülatörüyle sesli oynar. Otomatik kabul, insan bulunmadığı için durmamalıdır: simülatör gerçek bir model kullanır, yalnızca kendi koltuğuna yetkili bağlamdan akıl yürütür ve oyunun sunduğu araçlarla hareket eder.
+> Kurt adam, akıl yürütme, aldatma ve toplumsal stratejiyi sınayan klasik bir sosyal çıkarım oyunudur. Bu deneyde AI Agent'lar insan oyuncularla sesli oynar.
 >
 > **Mimari tasarım**:
 >
@@ -717,9 +689,7 @@ Kurt adam, bu kısımdaki üç boyuttan **stratejik oyunu** temsil eder: kural k
 >
 > **2. Bilgi erişim denetimi**: Kurt adamın temel mekanizması bilgi asimetrisidir (Information Asymmetry) — farklı roller farklı bilgileri görebilir. Örneğin kurt adamlar suç ortaklarının kim olduğunu bilir ama köylüler bilmez; kâhin her gece bir kişinin kimliğini inceleyebilir ama sonucu yalnızca kendisi bilir. Uygulaması şöyledir: hakem her rol Agent'ını çağırırken yalnızca o rolün görmesi gereken bilgiyi aktarır.
 >
-> **3. Gerçek zamanlı ses ve otomatik kullanıcı simülasyonu**: İnsan yolu Bölüm 9'daki sesli Agent'ı temel alır. Otomatik yolda bağımsız LLM, sıranın tek yasal aracını çağırmalı; seçilen ifade gerçek sese dönüştürülüp gerçek bir ASR API'sine gönderilmelidir. Oyun ses öncesi metni değil, yalnızca ASR dökümünü tüketir ve araç hedefi ASR'nin çözdüğü hedeften farklıysa kapalı biçimde başarısız olur. VAD ve araya girme insan yoluna özgü kapsama olarak kalır.
->
-> **4. Agent akıl yürütmesi ve stratejisi**:
+> **3. Agent akıl yürütmesi ve stratejisi**:
 >
 > - **Kurt adamın kılık değiştirme stratejisi**: Prompt'ta yaygın söylem kalıpları ve stratejiler yer alır — "Sıradan bir köylü gibi konuş; bazı oyunculardan şüphelendiğini söyleyebilirsin, ama dikkat çekmemek için aşırı saldırgan olma. Bir kâhin ortaya çıkıp seni kurt adam olarak incelediğini söylerse, karşı hamle yapıp onun kâhin taklidi yapan sahte bir oyuncu olduğunu iddia edebilirsin. Oy verirken mümkün olduğunca çoğunluğun oyuna uy (çoğunluğun oy verdiği hedefe oy ver), sıra dışı görünmekten kaçın."
 > - **Kâhinin kimliğini kanıtlaması**: Birden çok oyuncu kâhin olduğunu iddia ettiğinde — "Kendi inceleme bilgilerinle karşı tarafınkini karşılaştır, onun verdiği bilgilerdeki çelişkileri ya da mantıksızlıkları göster. Karşı tarafın incelediğini söylediği bir oyuncu, sonraki davranışlarında iddia edilen kimlikle açıkça bağdaşmıyorsa, orası bir açıktır. Doğrulamada iş birliği yapması için cadıdan destek iste."
@@ -736,7 +706,6 @@ Kurt adam, bu kısımdaki üç boyuttan **stratejik oyunu** temsil eder: kural k
 > - Köylü Agent'larının akıl yürütmesi rastgele tahmine değil, söylemlerin ve davranışların mantıksal çözümlemesine dayanmalı
 > - Oyun bittiğinde kazananı doğru biçimde belirleyebilmeli
 >
-> **Ölçülen sonuç (2026-08-01)**: [`voice-werewolf` doğrulama kayıtları](../chapter10/voice-werewolf/validation/runs/) otomatik yolu gerçek OpenRouter çağrıları ve yerel ses girdisiyle çalıştırdı. Sıkı bağımsız yeniden doğrulama, çözümlenemeyen “P1 is not” dökümünü yanlışlıkla çekimserlik sayan iki erken çalıştırmayı reddetti; düzeltilen sınır artık ASR'nin açıkça `abstain`, `skip` veya `none` demesini gerektiriyor. Etkilenmeyen v2 kullanıcı koltuğu, rol dizilimi, LLM aracı, sentezlenmiş ses, gerçek ASR, iki eylem eşleşmesi, üç tam döngü, bilgi izolasyonu ve kural tabanlı kazanan kapılarını geçti. Bir köylü kâhini yanlışlıkla oyundan çıkardığı için strateji başarısız oldu. Böylece sistem uçtan uca doğrulandı, ancak genel strateji kalitesi henüz geçmedi.
 >
 >
 > ![Şekil 10-13: Sesli Kurt Adam Agent Sistemi](images/fig10-13.svg)
@@ -745,13 +714,7 @@ Kurt adam, bu kısımdaki üç boyuttan **stratejik oyunu** temsil eder: kural k
 
 ## Bölüm Özeti
 
-Çoklu Agent sistemlerinin birbirinden bağımsız iki temel tasarım boyutu vardır: context'in paylaşılıp paylaşılmadığı ve iş birliği topolojisinin nasıl örgütlendiği. Paylaşılan context, "devralmaya dayalı" bir çoklu Agent iş birliğidir — sonraki Agent, önceki Agent'ın eksiksiz context'ini devralır; bilgi kaybı sıfırdır ama context hızla şişer. Context paylaşmayan biçim ise tümüyle bağımsız bir çoklu Agent iş birliğidir; bilgi alışverişi damıtılmış devir paketleri, dosya sistemi ya da mesajlaşma yoluyla yapılır. İş birliği topolojisinde eşler arası model az sayıda Agent'la yinelemeli iyileştirmeye, yönetici modeli dinamik zamanlama gerektiren karmaşık görevlere, merkezsiz model ise sorumlulukların eşit olduğu ve kontrolün Agent'lar arasında kendiliğinden dolaşması gereken senaryolara uygundur. Bütün bunlar, topolojiden bağımsız iki altyapı üzerine kuruludur ve tasarım şablonları işletim sistemlerinden gelir — Agent'ın çalışma zamanına oranı, sürecin çekirdeğe oranı gibidir: statik ön ek programdır, trajectory bellektir, LLM ise zaman paylaşılan kullanılan CPU'dur. Veri düzlemini oluşturan **paylaşılan dosya sistemi**, özünde Agent'a özel çalışma alanı, çoklu Agent paylaşım alanı, dış kaynaklar ve sistemin yerleşik kaynakları olmak üzere dört tür bölgenin bağlandığı sanal bir dizin ağacıdır; Agent'lar ürünlerini dosya yolları aktararak paylaşır. Kontrol düzlemini oluşturan **iletişim ve denetim mekanizmaları** ise mesaj aktarımını, durum sorgusunu, yürütmenin sonlandırılmasını ve kaynak zamanlamasını destekler. Durum sorgusu da aynı şekilde iki büyük iletişim paradigmasının içine düşer: ya mesajlarla asenkron soru-cevap yoluyla ya da paylaşılan dosya sistemi üzerinden yan yoldan gözlemle — alt Agent'ın gerçek zamanlı olarak kalıcılaştırdığı trajectory dosyası okunur ya da iki tarafın önceden anlaştığı hafif bir ilerleme dosyası okunur; trajectory, Agent'ın bütün durumudur, çökme sonrasında trajectory yüklenerek oturum geri getirilebilir. Message bus, kontrol düzleminin yaygın bir uygulamasıdır ve gerçek zamanlı, asenkron, çok taraflı mesaj koordinasyonuna uygundur; kurum sınırları aşıldığında ise A2A gibi standartlaştırılmış bir birlikte çalışabilirlik protokolü gerekir.
-
-Son yılların araştırmaları, çoklu Agent'ın tek Agent'tan üstün olup olmadığını belirleyen temel bir ölçüt ortaya koydu: **iş birliği süreci, üretim anında var olmayan yeni bir bilgi getiriyor mu?** Birden çok Agent yalnızca aynı metni yeniden gözden geçiriyorsa (tartışma modelinde olduğu gibi), eşit hesaplama kaynağı altında tek Agent da aynı ölçüde etkilidir; ama Reviewer dış geri bildirim elde edebiliyorsa — kod yürütme sonucu, görsel render ekran görüntüsü, araç doğrulama çıktısı — çoklu Agent'ın üstünlüğü esaslı hâle gelir. Loop mühendisliğindeki "döngünün darboğazı doğrulayıcıdadır" sözünün anlamı da tam budur: tembellikten doğan sahte tamamlama, erken vazgeçme ve sahte başarı biçimindeki üç erken sonlandırma türüne son vermek için, görevin ne zaman bittiğine modelin kendi beyanı değil, gerçek gözlemlere kök salmış bir doğrulayıcı karar vermelidir. Ayrıca Agent'a daha çok adım bütçesi vermek kendiliğinden daha iyi sonuç getirmez; Agent'ı hesaplama kaynaklarını makul biçimde dağıtmaya yöneltecek açık bir bütçe farkındalığı mekanizması da gerekir. Yönetici modelinde planlayıcının yeteneği bütün sistemin darboğazıdır — en güçlü model ve en özenle tasarlanmış prompt, planlamadan sorumlu Agent'a verilmelidir.
-
-Agent sayısı yeterince arttığında, önceden tasarlanması mümkün olmayan toplu davranışlar üretirler. Stanford AI Kasabası'ndaki 25 Agent kendiliğinden haber yaydı ve bir buluşmayı örgütleyerek koordine etti; Agentopia simülasyonu 10 yıla uzattı ve "yaşam ödülü" ile simülasyon deneyiminden trajectory seçip modeli eğitti, böylece Agent toplumunun biriktirdiği "toplumsal bilgeliği" alt görevlere aktardı; Moltbook'taki 1,5 milyon Agent'tan dijital bir din ve makineye özgü iş birliği protokolleri belirdi. Ekonomik boyutta, Vending-Bench Arena'da birbiriyle rekabet eden Agent'lar fiyat savaşına tutuştu, hatta kendiliğinden fiyat anlaşmasına gitti; Pinchwork, Agent'ların piyasa mekanizmasıyla birbirini işe almasını sağladı; RentAHuman ise Agent'ların kripto para ödeyerek insanlara fiziksel görevler yaptırmasına olanak tanıdı. Bütün bunlar yeni bir koordinasyon yönüne işaret ediyor — piyasa mekanizmasına dayalı merkezsiz kaynak dağıtımı[^agoric]. Bunun, daha önce ele alınan üç mimariyle nerede örtüşüp nerede ayrıldığı, üzerinde daha çok düşünülmeye değer.
-
-[^agoric]: Hesaplama kaynaklarını piyasa mekanizmasıyla dağıtma fikri yeni değildir: Miller, M. S., Drexler, K. E. *Markets and Computation: Agoric Open Systems.* In Huberman, B. A. (ed.), *The Ecology of Computation*, North-Holland, 1988.
+Çoklu Agent işbirliği, tek bir Agent'ın üretim sırasında elde edemeyeceği yeni bilgiler (çalıştırma sonuçları, görsel geri bildirim veya harici araç doğrulaması) sağladığında değerlidir. Tasarım; paylaşılan ya da yalıtılmış bağlam ile eşler arası, yönetici veya merkezi olmayan topolojiler arasında seçim yapmalıdır. Yapılandırılmış handoff paketleri, yetki sınırları, bağımsız doğrulama, bütçe ve iptal mekanizmaları temel hata toleransı döngüsünü oluşturur. Uzun süreli açık etkileşimlerde sosyal ilişkiler, normlar, piyasalar ve stratejiler ortaya çıkabilir; öz, bilgi akışını, yeteneklerin bölünmesini ve hataların keşfini tasarlamaktır.
 
 ## Düşünce Soruları
 

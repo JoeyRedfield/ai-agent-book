@@ -32,7 +32,7 @@ Mielőtt a módszertanba merülnénk, építsünk intuíciót egy teljes példá
 
 "Ügynöktrajektória":
 
-```
+```text
 Felhasználó: Szeretném visszaküldeni a 3 napja vásárolt fejhallgatót, rendelésszám 12345. (Ma 2026-04-10 van)
 
 Ügynök (gondolkodik): A felhasználó visszatérítést szeretne, először le kell kérdeznem a rendelés adatait.
@@ -108,6 +108,17 @@ Egy kiértékelési környezet öt elemből áll — a következő szakaszok az 
 "Rubrica (Pontozási Szempontok)": Számszerűsíti az Ügynök teljesítményét, amely lehet bináris (siker/kudarc), folytonos (0-tól 100 pontig) vagy többdimenziós (pontosság, hatékonyság és biztonság külön értékelése).
 
 "Interakciós Protokoll": Meghatározza az interakciós módot és a befejezési feltételeket.
+
+**Ismételhető értékelési ciklus:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![6-2. ábra: Eszközhívási és Ember-Számítógép Interakciós Kiértékelési Környezetek](images/fig6-2.svg)
 
@@ -368,6 +379,17 @@ rubric:
 
 "Jó Rubrica vs. Rossz Rubrica": A fenti pontozási szintek mindegyike verifikálható, konkrét viselkedést határoz meg ("Helyesen válaszol Dr. Chennel"), nem pedig olyan leírásokat, amelyeket nem lehet objektíven megítélni, mint a "mély megértést mutat". A vétó elem meghúzza az alsó határt: még ha minden más dimenzió maximális pontszámot is kap, egyetlen hallucináció esetén automatikus nulla.
 
+**Determinisztikus vétó a rubric pontozása előtt:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 A Rubricát és az Ügynök válaszát együtt adjuk a bírómodellnek, amely dimenziónként pontoz és indokol. Ha több tucat eset eredményét dimenziónként összesítjük, majd visszajátsszuk az alacsony pontszámú trajectory-ket, az általános „romlott a sikerarány” állítás konkrét diagnózissá válik: a lekérés kihagyott egy tényt, a modell rosszul kapcsolt össze személyeket vagy eseményeket, esetleg alátámasztás nélküli állítást tett. A jó Rubrica nemcsak a pontszámot mutatja meg, hanem azt is, hol érdemes folytatni a vizsgálatot.
 
 > **6-3. kísérlet ★★: Rubrica-alapú Felhasználói Memória Kiértékelő Rendszer Építése**
@@ -610,6 +632,18 @@ Ebből egy gyakorlati elv: **amikor a pontszámkülönbség kisebb, mint a becs�
 Még egy könnyen figyelmen kívül hagyható buktató a **többszörös összehasonlítás**. Hat független hipotézis 95%-os szinten történő vizsgálatakor legalább egy hamis pozitív esélye 1 − 0,95^6 ≈ 26%. Minél több változatot próbálunk, annál könnyebben tűnik valamelyik pusztán véletlenül sikeresnek. Szigorítsuk a küszöböt például Bonferroni-korrekcióval, vagy erősítsük meg a pozitív eredményt független futással. A későbbi AndroidWorld-sorozat körönként egyetlen változó módosításával mérsékli ezt a kockázatot; párhuzamos szűrésnél továbbra is korrekció vagy független megerősítés kell.
 
 A kiértékelés-vezérelt döntések minőségi adatokra támaszkodnak, amelyek az Ügynök működési folyamatának szisztematikus rögzítéséből származnak — ezt nevezzük megfigyelhetőségnek.
+
+**Páros összehasonlítás:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Ügynök-megfigyelhetőség
 

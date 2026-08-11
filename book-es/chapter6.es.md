@@ -112,6 +112,17 @@ Un entorno de evaluación consta de cinco elementos (las secciones posteriores p
 
 **Protocolo de interacción (Interaction Protocol)**: Establece el modo de interacción y las condiciones de terminación.
 
+**Bucle de evaluación reproducible:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
+
 ![Figura 6-2 Entornos de Evaluación de Llamada a Herramientas e Interacción Humano-Computadora](images/fig6-2.svg)
 
 ### Entornos de Evaluación Basados en Llamadas a Herramientas
@@ -366,6 +377,17 @@ rubric:
 
 **Rúbrica buena frente a Rúbrica mala**: Cada nivel de puntuación anterior proporciona comportamientos verificables específicos ("responder con precisión Dr. Chen") en lugar de descripciones imposibles de juzgar objetivamente como "demuestra una comprensión profunda de la memoria". El ítem de veto define la línea roja: incluso con puntuación máxima en las demás dimensiones, la presencia de alucinación resulta en cero puntos.
 
+**Veto determinista antes del juicio con rúbrica:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 Al enviar la rúbrica junto con la respuesta real del Agente, el modelo evaluador puntúa cada dimensión y explica el motivo. Al reunir decenas de casos y volver sobre las trayectorias peor puntuadas, una caída genérica de la tasa de éxito se convierte en un diagnóstico concreto: faltó recuperar un dato, se relacionaron mal las personas o se añadió información sin respaldo. La rúbrica, por tanto, no se limita a decir cuánto falló el sistema; también orienta la siguiente mejora.
 
 > **Experimento 6-3 ★★: Construcción de un Sistema de Evaluación de Memoria de Usuario Basado en Rubrics**
@@ -602,6 +624,18 @@ De aquí se deriva un principio práctico: **no tomar decisiones de cambio si la
 Existe además una trampa fácil de obviar: las **comparaciones múltiples**. Al verificar una serie de hipótesis en paralelo, la probabilidad de que "al menos una conclusión sea un falso positivo" se acumula rápidamente con el número de hipótesis: incluso aplicando un nivel de confianza del 95% a cada conclusión individual, al evaluar 6 hipótesis simultáneamente la probabilidad de obtener al menos un falso positivo es de $1 - 0,95^6 \approx 26\%$. A mayor número de hipótesis evaluadas en paralelo, más difícil es evitar la coincidencia de que "alguna parezca significativa". Existen dos estrategias de mitigación: elevar el umbral de confianza individual en escenarios de hipótesis múltiples, por ejemplo con una corrección de Bonferroni, o repetir las conclusiones positivas en una ejecución confirmatoria independiente y aceptarlas solo si se reproducen. El caso de AndroidWorld cambia una variable por ronda y evita seleccionar a posteriori el mejor de muchos cambios. Si se prueban en paralelo varios prompts o formatos de observación, la conclusión deberá corregir las comparaciones múltiples.
 
 Las decisiones impulsadas por la evaluación dependen de datos de alta calidad obtenidos a partir del registro sistemático del proceso de ejecución del Agente, ámbito que resuelve la observabilidad.
+
+**Comparación emparejada:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Observabilidad del Agente
 

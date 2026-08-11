@@ -379,8 +379,9 @@ class ContextAwareAgent:
         Args:
             api_key: API key for the LLM provider
             context_mode: Context mode for ablation studies
-            provider: LLM provider ('siliconflow', 'doubao', 'kimi', 'moonshot',
-                'deepseek', or 'openrouter')
+            provider: Any provider registered in ``agentbook.providers`` (for
+                example ``dashscope``/``qwen``, ``siliconflow``, ``doubao``,
+                ``kimi``, ``deepseek``, or ``openrouter``)
             model: Optional model override
             verbose: If True, log full HTTP requests and responses (default: True)
         """
@@ -440,13 +441,13 @@ Important: When you have gathered all necessary information and computed the fin
                 "type": "function",
                 "function": {
                     "name": "parse_pdf",
-                    "description": "Download and parse a PDF document from a URL to extract text content",
+                    "description": "Download and parse a PDF document from a URL or a file path to extract text content",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "url": {
                                 "type": "string",
-                                "description": "The URL of the PDF document to parse"
+                                "description": "The URL or file path of the PDF document to parse"
                             }
                         },
                         "required": ["url"]

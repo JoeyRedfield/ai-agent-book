@@ -32,7 +32,7 @@ Metodolojiye derinlemesine girmeden önce, eksiksiz bir örnek üzerinden sezgi 
 
 **Agent'ın trajectory'si**:
 
-```
+```text
 Kullanıcı: 3 gün önce aldığım kulaklığı iade etmek istiyorum, sipariş numarası 12345. (Bugün 2026-04-10)
 
 Agent (düşünüyor): Kullanıcı iade istiyor, önce sipariş bilgisini sorgulamam gerek.
@@ -108,6 +108,17 @@ Bir değerlendirme ortamı beş öğeden oluşur — ilerideki alt bölümler bu
 **Puanlama ölçütü (Rubric)** Agent'ın performansını nicelleştirir; ikili (geçti/kaldı), sürekli (0 ile 100 arası puan) veya çok boyutlu (doğruluk, verimlilik ve güvenlik için ayrı ayrı puan) olabilir.
 
 **Yürütme protokolü (Interaction Protocol)** etkileşim biçimini ve sonlanma koşullarını belirler.
+
+**Tekrarlanabilir değerlendirme döngüsü:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![Şekil 6-2: Araç Çağırma Tipi ve İnsan-Makine Etkileşimi Tipi Değerlendirme Ortamları](images/fig6-2.svg)
 
@@ -367,6 +378,17 @@ rubric:
 
 **İyi Rubric ile kötü Rubric**: yukarıdaki her puan basamağı, "belleğe dair derin bir kavrayış sergiliyor" gibi nesnel olarak yargılanamayacak betimlemeler yerine doğrulanabilir somut davranışlar ("Dr. Chen yanıtını doğru verir") tanımlıyor. Veto maddesi ise alt sınırı net çiziyor: diğer boyutların hepsi tam puan alsa bile, halüsinasyon görüldüğü anda sonuç doğrudan sıfırdır.
 
+**Rubric değerlendirmesi öncesi deterministik veto:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 Rubric ile Agent'ın yanıtını birlikte hakem modele verin; model her boyutu puanlayıp gerekçesini yazsın. Onlarca vakanın sonuçlarını boyutlara göre topladığınızda ve düşük puanlı trajectory'leri yeniden oynattığınızda, genel bir “başarı düştü” bulgusu somut bir teşhise dönüşür: retrieval bir olguyu kaçırmış olabilir, model kişi ya da olayları yanlış ilişkilendirmiş olabilir veya dayanağı olmayan bir iddia eklemiş olabilir. İyi bir Rubric yalnızca sistemin kaç puan aldığını değil, bir sonraki incelemenin nereye yönelmesi gerektiğini de gösterir.
 
 > **Deney 6-3 ★★: Rubric Tabanlı Bir Kullanıcı Belleği Değerlendirme Sistemi Kurmak**
@@ -609,6 +631,18 @@ Buradan pratik bir ilke çıkar: **puan farkı gürültü bandından küçükse 
 Kolayca gözden kaçan bir tuzak daha var: **çoklu karşılaştırma**. Altı bağımsız hipotezi %95 güven düzeyinde sınarsanız, en az bir yanlış pozitif bulma olasılığı 1 − 0,95^6 ≈ %26 olur. Ne kadar çok değişiklik denerseniz, sırf şans eseri “işe yarıyor” görünen bir değişiklik bulma olasılığınız o kadar artar. Çözüm ya Bonferroni benzeri bir düzeltmeyle anlamlılık eşiğini sıkılaştırmak ya da olumlu sonucu bağımsız bir doğrulama koşusunda yeniden üretmektir. İlerideki AndroidWorld dizisi her turda yalnızca bir değişkeni değiştirerek bu riski azaltır; birçok yönü paralel eleyecekseniz yine düzeltme veya bağımsız doğrulama gerekir.
 
 Değerlendirme güdümlü kararlar yüksek kaliteli veriye dayanır ve bu veri, Agent'ın çalışma sürecinin sistematik biçimde kaydedilmesinden gelir — observability'nin çözmeye çalıştığı sorun tam da budur.
+
+**Eşleştirilmiş karşılaştırma:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Agent'ın Observability'si
 

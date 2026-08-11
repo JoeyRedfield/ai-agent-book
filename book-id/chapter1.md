@@ -82,7 +82,7 @@ Tool calling berjalan dalam empat langkah: pertama, context memberi tahu model t
 
 Untuk kueri cuaca, representasi sederhana dari proses empat langkah di level API adalah sebagai berikut:
 
-```
+```text
 Step 1: Declare tools                  Step 2: Model decides to call
 tools: [{                             assistant: {
   name: "get_weather",                  tool_calls: [{
@@ -168,9 +168,30 @@ Pertimbangkan contoh konkret—mengagregasi pendapatan lintas berbagai mata uang
 
 ![Gambar 1-4: Trajectory Agent—Loop ReAct untuk tugas agregasi multi-mata uang](images/fig1-4.svg)
 
+Sketsa bergaya Python berikut adalah pseudocode penjelas, bukan kode SDK yang dapat dijalankan; penanda `python` hanya digunakan untuk penyorotan sintaks.
+
+**Loop kontrol ReAct:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Berikut adalah struktur trajectory, dalam pseudocode:
 
-```
+```text
 trajectory = [
   {role: "user", content: "Based on the company's quarterly revenue: Q1 2.5M USD, Q2 2.1M EUR, Q3 1.8M GBP, Q4 380M JPY, calculate the company's total annual revenue and average quarterly revenue"},
 
@@ -255,6 +276,20 @@ Jika dijabarkan ke dalam bentuk persamaan, komposisi kelas produksi (production-
 > **Harness = manajemen Context + antarmuka Tool + Constrain + Verify + Correct**
 >
 > **Agent ↔ Environment**
+
+**Batas produksi Harness:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 Sebuah Agent minimal mampu berjalan dengan LLM, context, dan tool saja. Untuk terus berjalan andal dalam beban kerja kelas produksi yang berjalan lama, dibutuhkan ketiga lapis rekayasa eksternal ini pula—Constrain untuk mencegah jangkauan berlebih (overreach), Verify untuk menangkap error, Correct guna pemulihan dari kegagalan. Dengan kata lain: formula minimal adalah sudut pandang demo, dan formula luas adalah sudut pandang produksi—yang terakhir sudah memuat seutuhnya komponen dari formula minimal serta menambahkan sebuah jaring pengaman (safety net) di sekitarnya.
 

@@ -32,7 +32,7 @@ Agent システムを構築する際、開発者は数多くの設計上の選�
 
 **Agent の軌跡**：
 
-```
+```text
 ユーザー：3 日前に買ったあのイヤホンを返品したいのですが、注文番号は 12345 です。（今日は 2026-04-10）
 
 Agent（思考）：ユーザーは返金を求めている。まず注文情報を照会する必要がある。
@@ -108,6 +108,17 @@ Agent の評価には、繰り返し実行できる自動化された環境が�
 **採点基準（Rubric、採点準則）** は Agent の性能を定量化します。二値（通過/不通過）でも、連続（0〜100 点）でも、多次元（正確性、効率、安全性にそれぞれ採点）でも構いません。
 
 **実行プロトコル（Interaction Protocol）** はインタラクションのモードと終了条件を規定します。
+
+**再現可能な評価ループ:**
+
+```python
+for task in dataset:
+    environment.reset(task.initial_state)
+    trajectory = agent.run(task.prompt, environment.tools)
+    outcome = environment.snapshot()
+    score = verifier(task, trajectory, outcome)
+    record(task, trajectory, outcome, score)
+```
 
 ![図6-2 ツール呼び出し型と人間・機械インタラクション型の評価環境](images/fig6-2.svg)
 
@@ -366,6 +377,17 @@ rubric:
 
 **良い Rubric 対 悪い Rubric**：上記の各採点段階は検証可能な具体的行動（「Dr. Chen と正確に回答」）を示しており、「メモリへの深い理解を示した」のような客観的に判定不能な記述ではありません。否決項は底線を明確にしています。他の次元がすべて満点でも、ハルシネーションが 1 回でも現れたら直接ゼロと判定します。
 
+**rubric 判定前の決定的 veto:**
+
+```python
+deterministic = verify_state_policy_and_claims(trajectory, outcome)
+if deterministic.veto:
+    return FAIL(reason = deterministic.evidence)
+
+rubric_result = judge(answer, rubric, evidence)
+return aggregate_with_confidence(rubric_result)
+```
+
 Rubric と Agent の回答を評価モデルに渡すと、各項目の点数と根拠が返ります。数十件の結果を集計し、低得点の軌跡を読み直せば、漠然とした「成功率の低下」を具体的な原因に分解できます。情報を取得できなかったのか、人物関係を取り違えたのか、それとも根拠のない内容を補ったのか。Rubric は点数を付けるだけでなく、次に直すべき場所を示す診断器になります。
 
 > **実験 6-3 ★★：Rubric に基づくユーザーメモリ評価システムの構築**
@@ -605,6 +627,18 @@ Agent 評価にはさらに実行ごとの揺らぎがあります。同じモ�
 もう 1 つ見落とされやすい罠が **多重比較** です。複数の仮説を並行して試すと、「少なくとも 1 つが偽陽性」である確率が急速に高まります。各結論を 95% 信頼水準で判定しても、6 仮説のうち少なくとも 1 つが偽陽性となる確率は 1 − 0.95^6 ≈ 26% です。対策は、Bonferroni 法のように仮説数に応じて有意水準を厳しくするか、正の結果を独立した確認実験で再現してから採用することです。後述の AndroidWorld 事例は各ラウンドで 1 変数だけを変え、多数の変更から都合のよい勝者だけを選ぶ問題を避けています。複数のプロンプトや観測形式を並行にスクリーニングするなら、多重比較を結論に反映しなければなりません。
 
 評価駆動の意思決定は高品質のデータに依存し、そのデータは Agent の実行過程の系統的な記録から来ます——これが可観測性の解決すべき問題です。
+
+**ペア比較:**
+
+```python
+for task in paired_tasks:
+    for seed in fixed_seeds:
+        a = run(config_a, task, seed)
+        b = run(config_b, task, seed)
+        record_paired_delta(verifier(a), verifier(b))
+
+return paired_bootstrap_or_mcnemar(all_deltas)
+```
 
 ## Agent の可観測性
 

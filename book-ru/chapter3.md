@@ -19,7 +19,7 @@
 
 Разберём этот процесс на конкретном примере. Предположим, у пользователя и агента состоялся такой диалог:
 
-```
+```text
 Пользователь: Забронируй мне рейс в Токио на следующую пятницу. Я предпочитаю места
       у окна и я вегетарианец, так что мне нужно специальное питание.
 Агент: Ищу рейсы в Токио на следующую пятницу...
@@ -31,12 +31,27 @@
 
 После завершения этого диалога фреймворк агента вызывает специальный LLM для анализа содержания диалога и извлечения информации, которую стоит запомнить надолго:
 
-```
+```text
 Извлечённые записи памяти:
 - Пользователь предпочитает места у окна (предпочтение)
 - Пользователь вегетарианец, нужно специальное питание на рейсах (диетическое ограничение)
 - Номер программы United MileagePlus пользователя: 12345678 (программа лояльности)
 - У пользователя есть планы поездки в Токио (недавняя активность)
+```
+
+**Жизненный цикл памяти:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 У этого процесса извлечения есть несколько ключевых особенностей.
@@ -126,50 +141,74 @@
 
 Вот упрощённый пример. На этапе структурирования паспорт и маршруты поездок пользователя сохраняются как типизированное состояние:
 
-```python
-from datetime import date
+**Журнал только-добавление и контрольная точка:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... остальные поездки
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**Типизированное состояние пользователя:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 Имея типизированное состояние, три задачи, которые раньше можно было решить только силами LLM — «прочитать текст ещё раз и посчитать в уме», — теперь становятся детерминированным кодом.
 
 Во-первых, **агрегирующая статистика**. «Сколько раз я выезжал за границу в прошлом году?» — в текстовой памяти пришлось бы извлечь все поездки и пересчитать их одну за другой, а с ростом числа записей ошибки становятся вероятнее; в User as Code это одно выражение с точностью почти 100%[^uac]:
 
+**Детерминированная агрегация:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 Во-вторых, **обнаружение конфликтов**. Если поместить рядом два состояния — «текущие лекарства» и «история аллергий», одна функция может сопоставить их по классу препарата и выявить противоречия, разбросанные по разным диалогам, которые в текстовом виде практически невозможно связать автоматически:
 
+**Обнаружение конфликтов:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"Конфликт по лекарству: {med.name} относится к классу {med.drug_class}, "
-                       f"а у пациента тяжёлая аллергия на {allergy.allergen}")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 В-третьих, **применение ограничений**. Агент может зафиксировать такую проверочную функцию так, чтобы она автоматически срабатывала при каждом обновлении состояния — не требуя от пользователя вопроса и не требуя поиска, она может проактивно предупредить. Например, ограничение по сроку действия паспорта: если до вылета за границу осталось менее 180 дней до истечения срока действия паспорта — выдать предупреждение.
 
+**Применение ограничений:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"Паспорт истекает {passport.expiry_date}, до поездки в {trip.destination} "
-                       f"осталось всего {days} дней, пожалуйста, продлите паспорт как можно скорее")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: полное описание дизайна и оценки построения памяти пользователя как исполняемого кода см. Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026.
@@ -296,6 +335,21 @@ answer = llm.generate(system="Ты помощник службы поддерж�
 
 Качество ретривера напрямую определяет эффективность RAG — если релевантные фрагменты не находятся, даже самая мощная LLM останется без материала для работы. Сначала рассмотрим первый этап попадания документа в базу знаний — разбиение на фрагменты, затем сосредоточимся на двух основных технических подходах ретривера: плотный эмбеддинг (основан на понимании семантики) и разреженное встраивание (основано на сопоставлении ключевых слов), а также на том, как их комбинировать.
 
+**Гибридный конвейер RAG:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![Рис. 3-5 Процесс запроса RAG: поиск, дополнение и генерация](images/fig3-5.svg)
 
@@ -513,7 +567,7 @@ GraphRAG сначала использует LLM для извлечения и�
 
 RAPTOR и GraphRAG представляют академические изыскания в области организации знаний, а открытый проект [OpenViking](https://github.com/volcengine/OpenViking) от Volcano Engine (ByteDance) предлагает третью философию: **парадигму файловой системы**. Здесь контекст рассматривается не как плоские векторные фрагменты или узлы графа, а как всё контекстное содержимое — память, ресурсы, навыки — отображается в директории и файлы виртуальной файловой системы, и каждая запись имеет уникальный URI:
 
-```
+```text
 viking://
 ├── resources/          # внешние знания: документы, репозитории кода, веб-страницы
 ├── user/memories/      # память пользователя: предпочтения, привычки

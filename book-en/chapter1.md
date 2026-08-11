@@ -82,7 +82,7 @@ Tool calling proceeds in four steps: first, the context tells the model which to
 
 For a weather query, the simplified representation of the four-step process at the API level is as follows:
 
-```
+```text
 Step 1: Declare tools                  Step 2: Model decides to call
 tools: [{                             assistant: {
   name: "get_weather",                  tool_calls: [{
@@ -168,9 +168,30 @@ Consider a concrete example—aggregating revenue across multiple currencies—t
 
 ![Figure 1-4: Agent trajectory—ReAct loop for a multi-currency aggregation task](images/fig1-4.svg)
 
+The following Python-style sketch is explanatory pseudocode, not runnable SDK code; the `python` marker is used only for syntax highlighting.
+
+**ReAct control loop:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Here is the structure of a trajectory, in pseudocode:
 
-```
+```text
 trajectory = [
   {role: "user", content: "Based on the company's quarterly revenue: Q1 2.5M USD, Q2 2.1M EUR, Q3 1.8M GBP, Q4 380M JPY, calculate the company's total annual revenue and average quarterly revenue"},
   
@@ -255,6 +276,20 @@ Expanded as an equation, the complete production-grade composition is:
 > **Harness = Context management + Tool interfaces + Constrain + Verify + Correct**
 >
 > **Agent ↔ Environment**
+
+**Harness production boundary:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 A minimal working Agent runs on LLM, context, and tools alone. To keep running reliably in long-running production workloads, it needs the three outer engineering layers as well—constrain to prevent overreach, verify to catch errors, correct to recover from failures. Put differently: the minimal formula is the demo view, and the expanded formula is the production view—the latter contains the former entirely and adds a safety net around it.
 

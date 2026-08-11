@@ -20,7 +20,7 @@
 
 具体的な例でこのプロセスを理解しましょう。ユーザーと Agent の間に次のような対話があったとします。
 
-```
+```text
 User: Help me book a flight to Tokyo next Friday. I prefer window seats
       and I'm vegetarian, so I'll need a special meal.
 Agent: I'll search for flights to Tokyo for next Friday...
@@ -32,12 +32,27 @@ User: Yes, and use my United MileagePlus number 12345678.
 
 この対話が終わると、Agent フレームワークは専用の LLM を一度呼び出して対話内容を分析し、長期的に記憶する価値のある情報を抽出します。
 
-```
+```text
 Extracted memories:
 - User prefers window seats (preference)
 - User is vegetarian, needs special meals on flights (dietary restriction)
 - User's United MileagePlus number: 12345678 (loyalty program)
 - User has travel plans to Tokyo (recent activity)
+```
+
+**メモリのライフサイクル:**
+
+```python
+when answering(user_request):
+    recent_turns = conversation.tail()
+    relevant_memory = memory.search(user_request)
+    answer = LLM(recent_turns + relevant_memory)
+    return answer
+
+after conversation (background job):
+    candidates = extract_memory_candidates(conversation)
+    verified = verify_against_sources_and_policy(candidates, conversation)
+    memory.append_or_update(verified)
 ```
 
 この抽出プロセスには、いくつかの重要な特徴があります。
@@ -127,50 +142,74 @@ Agent が現在のタスクを効率的に処理でき、かつセッション�
 
 以下は簡略化した例です。構造化段階はユーザーのパスポートと旅程を型付きの状態として格納します。
 
-```python
-from datetime import date
+**追記専用ログとチェックポイント:**
 
-passport = PassportInfo(
-    number="AB1234567", country="US",
-    expiry_date=date(2025, 2, 18),
-)
-trips = [
-    Trip(destination="Tokyo", departure_date=date(2025, 1, 15),
-         is_international=True),
-    # ... 其余行程
-]
+```python
+append_only_log += extract_facts(conversation)
+
+if checkpoint_due():
+    proposed_state = rebuild_typed_state(append_only_log)
+    if type_check(proposed_state) and source_review(proposed_state):
+        publish_checkpoint(proposed_state)
+    else:
+        keep_previous_checkpoint()
+```
+
+**型付きユーザー状態:**
+
+```python
+state = {
+    passport: PassportInfo(
+        number = "AB1234567",
+        country = "US",
+        expiry_date = date(2025, 2, 18),
+    ),
+    trips: [
+        Trip(destination = "Tokyo", departure_date = date(2025, 1, 15),
+             is_international = true),
+        ...
+    ],
+}
 ```
 
 型付きの状態があれば、これまで LLM が「テキストを一度読んで暗算する」しかなかった 3 つのことが、今やすべて決定論的なコードになります。
 
 その一、**集計統計**。「私は去年何回海外へ出たか？」——テキスト記憶ではすべての旅程を思い出して一つずつ数える必要があり、記録が増えるほど誤りやすくなります。一方 User as Code では 1 行の式で済み、正解率はほぼ 100% です[^uac]。
 
+**決定的集約:**
+
 ```python
->>> sum(1 for t in trips if t.is_international and t.departure_date.year == 2025)
-2
+count(
+    trip for trip in state.trips
+    if trip.is_international and year(trip.departure_date) == 2025
+)
+# => 2
 ```
 
 その二、**衝突の発見**。「現在の服薬」と「アレルギー歴」の 2 つの状態を並べれば、1 つの関数で薬物カテゴリごとに突き合わせ、異なる対話に散らばっていてテキスト形式ではほぼ自動的に関連付けられない矛盾を見つけ出せます。
 
+**競合検出:**
+
 ```python
 def check_drug_allergy(profile):
-    for med in profile.current_medications:
+    for medication in profile.current_medications:
         for allergy in profile.allergies:
-            if med.drug_class == allergy.drug_class:
-                yield (f"用药冲突：{med.name} 属于 {med.drug_class} 类，"
-                       f"而患者对 {allergy.allergen} 严重过敏")
+            if medication.drug_class == allergy.drug_class:
+                emit_conflict(medication, allergy)
 ```
 
 その三、**制約の強制**。Agent はこのようなチェック関数を固定化し、状態が更新されるたびに自動的にトリガーできます。ユーザーが口に出す必要も、検索する必要もなく、能動的に注意喚起できるのです。たとえばパスポートの有効期限の制約なら、海外行程の出発日がパスポートの失効まで 180 日を切ったら警告します。
 
+**制約の適用:**
+
 ```python
 def check():
-    for trip in trips:
+    for trip in state.trips:
         if trip.is_international:
-            days = (passport.expiry_date - trip.departure_date).days
+            days = date_difference(state.passport.expiry_date,
+                                   trip.departure_date)
             if days < 180:
-                yield (f"护照 {passport.expiry_date} 到期，距 {trip.destination} "
-                       f"行程仅剩 {days} 天，请尽快续办")
+                alert("passport expires too soon", trip, days)
 ```
 
 [^uac]: ユーザー記憶を実行可能コードのエンジニアリングとして構築する完全な設計と評価は、Li, Bojie. *User as Code: Executable Memory for Personalized Agents.* arXiv:2606.16707, 2026 を参照。
@@ -297,6 +336,21 @@ answer = llm.generate(system="你是客服助手。", context=results, question=
 
 検索器の品質が RAG の効果を直接決めます。関連する断片を検索できなければ、LLM がいくら強くても無い袖は振れません。本節ではまず文書が知識ベースに入る最初の工程——分割（チャンキング）——を見て、次に検索器の 2 大技術路線に重点を置きます。密ベクトル埋め込み（意味理解に基づく）と疎ベクトル埋め込み（キーワードマッチングに基づく）、そして両者をどう組み合わせるか、です。
 
+**ハイブリッド RAG パイプライン:**
+
+```python
+offline:
+    chunks = split_documents(documents)
+    dense_index = build_dense_index(chunks)
+    sparse_index = build_sparse_index(chunks)
+
+online(query):
+    dense_hits = dense_search(dense_index, query)
+    sparse_hits = sparse_search(sparse_index, query)
+    candidates = fuse_and_deduplicate(dense_hits, sparse_hits)
+    evidence = rerank(query, candidates)
+    return LLM(query + evidence)
+```
 
 ![図3-5 RAG のクエリフロー：検索、拡張、生成](images/fig3-5.svg)
 
@@ -515,7 +569,7 @@ GraphRAG はまず LLM を使ってテキストから鍵となるエンティテ
 
 RAPTOR と GraphRAG は学術界の知識組織への探求を代表しますが、バイトダンス火山エンジンがオープンソース化した [OpenViking](https://github.com/volcengine/OpenViking) は第 3 の哲学を提示します。**ファイルシステムのパラダイム**です。それはコンテキストを平坦なベクトルの断片やグラフのノードとしてではなく、すべてのコンテキスト——記憶、リソース、スキル——を仮想ファイルシステム中のディレクトリとファイルに写像し、各エントリが一意の URI を持ちます。
 
-```
+```text
 viking://
 ├── resources/          # 外部知识：文档、代码库、网页
 ├── user/memories/      # 用户记忆：偏好、习惯

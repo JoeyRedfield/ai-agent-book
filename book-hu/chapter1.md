@@ -82,7 +82,7 @@ A tool calling négy lépésben zajlik: először a kontextus tájékoztatja a m
 
 Egy időjárás-lekérdezés esetén a négy lépéses folyamat API-szintű egyszerűsített reprezentációja a következő:
 
-```
+```text
 1. lépés: Eszközök deklarálása         2. lépés: Modell úgy dönt, meghívja
 tools: [{                              assistant: {
   name: "get_weather",                   tool_calls: [{
@@ -168,9 +168,30 @@ Vegyünk egy konkrét példát – a bevételek összesítését több devizába
 
 ![1-4. ábra: Ügynök trajektória – ReAct ciklus egy többdevizás összesítési feladathoz](images/fig1-4.svg)
 
+Az alábbi Python-stílusú vázlat magyarázó pszeudokód, nem futtatható SDK-kód; a `python` jelölő csak szintaxiskiemelésre szolgál.
+
+**ReAct vezérlési ciklus:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Itt látható egy trajektória szerkezete pszeudokódban:
 
-```
+```text
 trajectory = [
   {role: "user", content: "A vállalat negyedéves bevételei alapján: Q1 2,5M USD, Q2 2,1M EUR, Q3 1,8M GBP, Q4 380M JPY, számítsd ki a vállalat teljes éves bevételét és az átlagos negyedéves bevételt"},
 
@@ -255,6 +276,20 @@ Kibontva egyenletként, a teljes éles üzemi összetétel:
 > **Harness = Kontextuskezelés + eszközinterfészek + korlátozás + ellenőrzés + javítás**
 >
 > **Ügynök ↔ Környezet**
+
+**A Harness éles határa:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 Egy minimálisan működő ügynök csak LLM-ből, kontextusból és eszközökből áll. Ahhoz, hogy hosszú futású éles munkaterhelésekben megbízhatóan működjön, a három külső mérnöki rétegre is szükség van – korlátozás a túlkapások megelőzésére, ellenőrzés a hibák észlelésére, javítás a hibákból való felépülésre. Másképpen fogalmazva: a minimális képlet a demó nézet, a kibővített képlet az éles üzemi nézet – az utóbbi teljes egészében tartalmazza az előbbit, és egy biztonsági hálót ad hozzá.
 

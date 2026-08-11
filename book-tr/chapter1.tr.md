@@ -82,7 +82,7 @@ Tool calling dört adımdan oluşur: önce context, modele hangi araçların mev
 
 Bir hava durumu sorgusu senaryosunu örnek alırsak, bu dört adımlı sürecin API düzeyindeki basitleştirilmiş gösterimi şöyledir:
 
-```
+```text
 Adım 1: Araçları bildir                Adım 2: Model çağırmaya karar verir
 tools: [{                             assistant: {
   name: "get_weather",                  tool_calls: [{
@@ -168,9 +168,30 @@ Somut bir örnek üzerinden—birden fazla para biriminde geliri toplama—bir A
 
 ![Şekil 1-4: Agent trajectory'si—çok para birimli toplama görevi için ReAct döngüsü](images/fig1-4.svg)
 
+Aşağıdaki Python tarzı taslak açıklayıcı pseudocode'dur, çalıştırılabilir SDK kodu değildir; `python` işareti yalnızca sözdizimi vurgulama için kullanılır.
+
+**ReAct kontrol döngüsü:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Bir trajectory'nin yapısı, sözde kod (pseudocode) olarak şöyledir:
 
-```
+```text
 trajectory = [
   {role: "user", content: "Şirketin çeyreklik gelirlerine göre: Q1 2.5M USD, Q2 2.1M EUR, Q3 1.8M GBP, Q4 380M JPY, şirketin toplam yıllık gelirini ve ortalama çeyreklik gelirini hesapla"},
 
@@ -257,6 +278,20 @@ Bir denklem olarak genişletildiğinde, eksiksiz üretim düzeyindeki bileşim �
 > **Harness = context yönetimi + araç arayüzleri + Constrain + Verify + Correct**
 >
 > **Agent ↔ Ortam**
+
+**Harness üretim sınırı:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 Minimal, çalışan bir Agent yalnızca LLM, context ve tools ile yürür. Uzun vadede üretimde güvenilir biçimde çalışmaya devam etmesi için üç dış mühendislik katmanına da ihtiyacı vardır—aşırıya kaçmayı önlemek için constrain, hataları yakalamak için verify, arızalardan kurtulmak için correct. Başka bir deyişle: minimal formül demo bakış açısıdır, genişletilmiş formül ise üretim bakış açısıdır—ikincisi birincisini tamamen içerir ve etrafına bir güvenlik ağı ekler.
 

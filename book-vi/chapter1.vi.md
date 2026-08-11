@@ -82,7 +82,7 @@ Quá trình gọi công cụ được chia thành bốn bước: đầu tiên, c
 
 Lấy kịch bản kiểm tra thời tiết làm ví dụ, cách trình bày đơn giản hóa quy trình bốn bước ở cấp độ API như sau:
 
-```
+```text
 Bước 1: Khai báo công cụ Bước 2: Mô hình lời gọi quyết định
 tools: [{                          assistant: {
   name: "get_weather",               tool_calls: [{
@@ -170,9 +170,30 @@ Hãy cùng tìm hiểu trajectory của Agent thông qua một ví dụ cụ th�
 
 ![Hình 1-4: Trajectory tác nhân - Vòng lặp ReAct của nhiệm vụ tóm tắt đa tiền tệ ](images/fig1-4.svg)
 
+Bản phác thảo theo phong cách Python dưới đây là pseudocode mang tính giải thích, không phải mã SDK có thể chạy; marker `python` chỉ dùng để tô sáng cú pháp.
+
+**Vòng lặp điều khiển ReAct:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Hãy cùng chúng tôi tìm hiểu cấu trúc trajectory Agent thông qua mã giả:
 
-```
+```text
 trajectory = [
 {role: "user" , content: "Dựa trên doanh thu hàng quý của công ty: Quý 1 2,5 triệu đô la Mỹ, quý 2 2,1 triệu euro, quý 3 1,8 triệu bảng Anh, quý 4 380 triệu yên, tính tổng doanh thu hàng năm và doanh thu trung bình hàng quý của công ty" },
 
@@ -258,6 +279,20 @@ Sử dụng các phương trình để mở rộng thành phần hoàn chỉnh �
 > **Harness = quản lý ngữ cảnh + giao diện công cụ + ràng buộc + xác minh + sửa lỗi**
 >
 > **Agent ↔ Môi trường**
+
+**Ranh giới Harness production:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 Agent hoạt động nhỏ nhất chỉ cần LLM, ngữ cảnh và công cụ để chạy; nhưng để làm cho nó chạy đáng tin cậy trong môi trường sản xuất trong thời gian dài, nó cũng cần hoàn thiện lớp vỏ kỹ thuật ba lớp gồm các ràng buộc, xác minh và sửa chữa - các ràng buộc để ngăn chặn các trường hợp vượt quá giới hạn, xác minh để phát hiện lỗi cũng như sửa chữa và phục hồi các trường hợp ngoại lệ. Nói cách khác, công thức tối thiểu là bối cảnh demo và công thức mở rộng là bối cảnh sản xuất; cái sau hoàn toàn bao gồm cái trước và bổ sung thêm một mạng lưới an toàn xung quanh vùng ngoại vi.
 

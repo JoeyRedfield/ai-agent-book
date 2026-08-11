@@ -82,7 +82,7 @@
 
 На примере сценария с запросом погоды упрощённое представление четырёх шагов на уровне API выглядит так:
 
-```
+```text
 Шаг 1: объявление инструментов        Шаг 2: модель решает вызвать
 tools: [{                          assistant: {
   name: "get_weather",               tool_calls: [{
@@ -168,9 +168,30 @@ tool: {                            assistant: {
 
 ![Рис. 1-4 Траектория агента — цикл ReAct в задаче сведения доходов в нескольких валютах](images/fig1-4.svg)
 
+Следующий скетч в стиле Python — поясняющий псевдокод, а не запускаемый код SDK; маркер `python` используется только для подсветки синтаксиса.
+
+**Цикл управления ReAct:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 Давайте разберём структуру траектории агента на псевдокоде:
 
-```
+```text
 траектория = [
   {role: "user" , content: "По квартальным доходам компании: Q1 2.5M долларов, Q2 2.1M евро, Q3 1.8M фунтов, Q4 380M иен, рассчитай годовой суммарный доход компании и средний квартальный доход" },
   
@@ -256,6 +277,20 @@ tool: {                            assistant: {
 > **Harness = управление контекстом + интерфейсы инструментов + ограничения + проверка + исправление**
 >
 > **Агент ↔ Окружение**
+
+**Производственная граница Harness:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 Минимально работающему агенту достаточно LLM, контекста и инструментов, чтобы запуститься; но чтобы он долго и надёжно работал в продакшене, нужно добавить ещё три инженерных слоя оболочки — ограничения, проверку и исправление: ограничения не дают выйти за границы, проверка находит ошибки, исправление восстанавливает после сбоев. Иными словами, минимальная формула — это взгляд с точки зрения демо, расширенная — с точки зрения продакшена; вторая полностью включает первую и добавляет вокруг ещё и защитную сеть.
 

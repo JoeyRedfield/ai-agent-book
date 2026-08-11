@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze memory, reflection, diffusion, and action logs for Experiment 10-7."""
+"""Analyze memory, reflection, diffusion, and action logs for Experiment 10-5."""
 
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ def main() -> int:
     analysis_dir = output / "analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
     path = analysis_dir / "deterministic_analysis.json"
-    path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 

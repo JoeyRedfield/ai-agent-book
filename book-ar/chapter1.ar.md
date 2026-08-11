@@ -168,6 +168,27 @@ tool: {                               assistant: {
 
 ![الشكل 1-4: مسار الوكيل — حلقة ReAct لمهمة تجميع متعددة العملات](images/fig1-4.svg)
 
+المخطط التالي بأسلوب Python هو pseudocode توضيحي وليس شفرة SDK قابلة للتشغيل؛ وتُستخدم علامة `python` للتلوين النحوي فقط.
+
+**حلقة تحكم ReAct:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 هنا هو هيكل المسار، في الكود الكاذب:
 
 ```text
@@ -255,6 +276,20 @@ trajectory = [
 > **منظومة التشغيل = إدارة السياق + واجهات الأدوات + التقييد + التحقق + التصحيح**
 >
 > **الوكيل ↔ البيئة**
+
+**حد الإنتاج في Harness:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
 
 يكفي النموذج والسياق والأدوات لبناء حد أدنى من الوكيل العامل، لكن التشغيل الموثوق طويل الأمد في بيئة الإنتاج يحتاج كذلك إلى الطبقات الهندسية الثلاث: التقييد لمنع التجاوز، والتحقق لاكتشاف الخطأ، والتصحيح للتعافي منه. وبعبارة أخرى، تمثل المعادلة الأولى منظور النموذج الأولي، وتمثل المعادلة الموسعة منظور الإنتاج؛ فهي تحتوي الأولى وتضيف إليها شبكة أمان.
 

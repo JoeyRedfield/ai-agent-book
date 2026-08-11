@@ -337,7 +337,7 @@ La lógica central de este código consta únicamente de un bucle `for` acotado 
 Sigamos la evolución de la lista `messages` en cada ronda:
 
 **Estado inicial (antes de la 1.ª llamada):**
-```
+```text
 messages = [
   { role: "system",  content: "You are a helpful assistant..." },     # Escrito por el desarrollador
   { role: "user",    content: "What's the current time and weather in Vancouver?" },  # Entrada del usuario
@@ -345,7 +345,7 @@ messages = [
 ```
 
 **Tras la 1.ª llamada (el modelo devuelve llamadas a herramientas):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -356,7 +356,7 @@ messages = [
 ```
 
 **Tras la 2.ª llamada (el modelo devuelve la respuesta final, el bucle termina):**
-```
+```text
 messages = [
   { role: "system",    content: "..." },
   { role: "user",      content: "What's the current time..." },
@@ -378,6 +378,25 @@ A través del ejemplo anterior, podemos visualizar con claridad la composición 
 La parte superior (System Prompt + Tool Definitions) se mantiene inalterada a lo largo de la conversación, mientras que la parte inferior (historial de conversación, es decir, la **trayectoria** definida en el Capítulo 1) crece continuamente a medida que avanza la interacción. Así es exactamente como se ven a nivel de API los "cinco componentes del contexto" del Capítulo 1: el prompt del sistema y las definiciones de herramientas forman el prefijo estático, mientras que los mensajes del usuario, las respuestas del modelo y los resultados de ejecución de herramientas conforman el historial dinámico de mensajes. Esta estructura de "prefijo estático + trayectoria" constituye la base para las discusiones posteriores sobre la optimización de KV Cache y la compresión de contexto; al comprender esta estructura se entiende por qué "la parte frontal no debe moverse y la posterior se puede comprimir".
 
 Las secciones siguientes del capítulo se desarrollarán en torno a cada nivel de esta estructura: cómo utilizar la inmutabilidad del prefijo estático para acelerar la inferencia (KV Cache), cómo diseñar un buen System Prompt (ingeniería de prompts), cómo prevenir el secuestro del contexto por contenidos externos (defensa contra inyección de prompts), cómo cargar conocimiento especializado a demanda (Agent Skills), cómo inyectar información dinámica de estado al final de la conversación (barra de estado del Agente) y cómo comprimir de forma inteligente el historial de mensajes cuando este se expande (estrategias de compresión).
+
+**Construcción del contexto antes de cada solicitud:**
+
+```python
+stable_prefix = system_message
+stable_tools = core_tool_schemas
+trajectory = load_message_history(session)
+status_message = make_status_message(derive_current_state(trajectory))
+
+if estimated_tokens(stable_prefix, trajectory, status_message) > budget:
+    trajectory = compress_old_evidence(
+        trajectory,
+        preserve = [decisions, constraints, failures, citations]
+    )
+
+request.messages = [stable_prefix] + trajectory + [status_message]
+request.tools = stable_tools
+response = call_model(request)
+```
 
 > **Experimento 2-1 ★: Despliegue de Servicios de LLM Locales y Llamada a Herramientas**
 >
@@ -592,7 +611,7 @@ Los métodos para reducir la carga cognitiva humana son igualmente efectivos par
 
 En contraste, los prompts orientados a procesos actúan como un excelente manual de capacitación para nuevos empleados, proporcionando Procedimientos Operativos Estándar (SOP) claros:
 
-```
+```text
 File Processing Standard Operating Procedure:
 
 Step 1: Validation
@@ -727,39 +746,48 @@ La idea central de Agent Skills consiste en modularizar las capacidades del Agen
 
 [^ch2-3]: Anthropic, "Equipping Agents for the Real World with Agent Skills", 2025.
 
-**Primera capa (metadatos)**: cada Skill debe incluir un archivo `SKILL.md` que comience con YAML frontmatter (es decir, un bloque de metadatos situado al principio del archivo y delimitado por `---`, similar a la página de créditos de un libro), con dos campos: `name` y `description`. Al iniciarse, el framework del Agente examina todos los Skills instalados e inyecta sus valores `name` y `description` (que ocupan solo unos cientos de tokens) en el contexto de la conversación (las decisiones de diseño relativas al lugar de inyección se explican en la siguiente subsección), de modo que el Agente conozca las capacidades especializadas de las que dispone sin consumir una gran cantidad de contexto.
+**Primera capa (metadatos)**: cada Skill debe proporcionar un archivo `SKILL.md` que comience con YAML frontmatter (un bloque de metadatos delimitado por `---`), con los campos `name` y `description`. El catálogo debe estar visible para el Agente antes de cargar el cuerpo principal, para que pueda decidir si una capacidad es pertinente sin pagar el coste contextual completo de todos los Skills. Los distintos runtimes pueden colocar el catálogo en capas de contexto diferentes; su finalidad común es la descubribilidad, no transportar todo el flujo de trabajo del dominio.
 
-El campo `description` de los metadatos es clave para la decisión de enrutamiento—debe ser lo bastante breve como para controlar la cantidad de tokens residentes, pero su redacción debe parecerse a una condición de enrutamiento y no a una presentación de funcionalidades. La formulación más directa consiste en usar «Use when / Don't use when» y añadir varios **contraejemplos** (es decir, enumerar explícitamente situaciones en las que «este Skill no debe activarse»). En la práctica, las descripciones de Skills que carecen de contraejemplos reducen notablemente la precisión del enrutamiento—una descripción demasiado amplia provoca activaciones erróneas frecuentes en tareas no relacionadas; al añadir contraejemplos, la precisión del enrutamiento se recupera de forma significativa. Los contraejemplos no son opcionales, sino esenciales para que el enrutamiento de Skills active el recurso correcto. Una descripción demasiado amplia (como «help with backend») permite que cualquier trabajo relacionado con backend active el Skill y degrada la precisión del enrutamiento; una descripción verdaderamente eficaz expresa condiciones de enrutamiento—«cuándo debes utilizarme» es mucho más importante que «qué puedo hacer».
+El campo `description` de los metadatos es importante para el enrutamiento. Debe ser lo bastante breve para limitar los tokens siempre presentes, pero estar redactado como una condición de enrutamiento y no como un resumen de funciones. Puede indicar los límites «Use when» y «Don't use when» e incluir **contraejemplos** representativos para reducir activaciones erróneas debidas a coincidencias amplias. Esto es un consejo de redacción para las indicaciones de enrutamiento, no un campo obligatorio adicional. Una descripción como «help with backend» puede activarse en casi cualquier tarea de backend; una descripción eficaz indica cuándo debe usarse el Skill, no solo qué puede hacer.
 
-**Segunda capa (proceso principal)**: cuando el Agente determina que una tarea requiere un Skill específico, carga el archivo `SKILL.md` completo mediante una herramienta Skill dedicada, y su contenido aparece como tool result en el historial de la conversación. Por ejemplo, PPTX Skill[^ch2-4] incluye el proceso principal para trabajar con archivos PowerPoint: cómo extraer texto mediante markitdown (la herramienta open source de Microsoft para convertir documentos a Markdown), cómo descomprimir archivos PPTX para acceder a su estructura XML original y cuáles son las convenciones de rutas para los archivos clave.
+**Segunda capa (proceso principal)**: cuando el Agente determina que una tarea requiere un Skill específico, el runtime carga el `SKILL.md` completo solo en ese momento. Claude Code añade las instrucciones del Skill como un mensaje user en el punto de invocación; otros runtimes pueden leer un archivo o activar una herramienta dedicada y devolver el contenido como resultado de herramienta. Por ejemplo, PPTX Skill[^ch2-4] incluye el proceso principal para trabajar con archivos PowerPoint: cómo extraer texto mediante markitdown (la herramienta open source de Microsoft para convertir documentos a Markdown), cómo descomprimir archivos PPTX para acceder a su estructura XML original y cuáles son las convenciones de rutas para los archivos clave.
 
 [^ch2-4]: Anthropic, "PPTX Skill", 2025. https://github.com/anthropics/skills/
 
+[^ch2-codex-skills]: OpenAI, «Build skills», documentación de Codex. https://developers.openai.com/codex/skills/
+
 **Tercera capa (reglas detalladas)**: las referencias de archivos permiten profundizar en subdocumentos más detallados. El archivo principal hace referencia a `html2pptx.md` (el workflow detallado para crear archivos PowerPoint mediante plantillas HTML), `reference.md` (detalles técnicos del formato) y otros archivos. El Agente selecciona y consulta en profundidad los subdocumentos pertinentes según las necesidades concretas.
 
-Un Skill no solo contiene documentación instructiva; también puede incluir herramientas de código ejecutables y archivos de plantilla—de este modo, pasa de la mera transferencia de conocimiento a la provisión de capacidades reales.
+### Cómo escribir un Skill utilizable
+
+La estructura de runtime resuelve «cuándo cargar» y «cuánto cargar»; el contenido aún debe convertir la experiencia en instrucciones que el modelo pueda ejecutar. Un Skill útil debe indicar a una persona recién incorporada qué tarea cubre, en qué orden actuar, cuándo detenerse para pedir confirmación y qué significa terminar.
+
+Siguiendo la guía de redacción de Baoyu, *Guía visual de Skills*[^ch2-baoyu-remove-ai-writing-flavor], se puede empezar con cuatro partes:
+
+- **Rol y lector**: a quién sirve el Skill, qué tarea cubre y qué estándar debe cumplir la salida;
+- **Principios básicos**: tres a cinco decisiones importantes, con ejemplos positivos y negativos;
+- **Prohibiciones**: errores frecuentes, acciones fuera de alcance y expresiones confusas, incluidas las excepciones legítimas;
+- **Referencias**: glosarios, plantillas, ejemplos y subdocumentos detallados. Conviene escribir las reglas como «ámbito + acción + excepción + verificación», en lugar de acumular palabras prohibidas.
+
+Un Skill de escritura puede partir de tres a cinco textos propios. Pida al Agente que infiera elección de palabras, patrones de oración, estructura de párrafos y tono; genere un primer borrador breve; y aplíquelo a una tarea real para revisarlo frase por frase. Las diferencias entre el original y la revisión son más informativas que decir «hazlo más natural»: muestran qué palabras se eliminaron, qué frases largas se dividieron y dónde se añadieron hechos. Incorpore los cambios recurrentes al Skill y conserve ejemplos positivos, negativos y el ámbito de cada regla.
+
+Los Skills también pueden incluir herramientas de código ejecutables y archivos de plantilla. Por ejemplo, un Skill de presentaciones puede contener plantillas de diapositivas y scripts para analizar presentaciones.
 
 El valor de Skills no reside únicamente en una gestión elegante del contexto, sino también en ofrecer una vía sostenible para acumular conocimiento de dominio. Cada Skill es un módulo de conocimiento autocontenido que puede desarrollarse, probarse, someterse a control de versiones y compartirse de forma independiente. Esta modularidad transforma la ampliación de capacidades de un Agente: deja de consistir en la edición centralizada del prompt del sistema y pasa a ser la construcción distribuida de un ecosistema de Skills impulsado por la comunidad—esto presenta una profunda similitud con los sistemas de gestión de paquetes del software open source (como pip de Python y npm de Node.js), donde cada Skill encapsula las mejores prácticas de un dominio concreto. El repositorio oficial de Skills de Anthropic ya abarca ámbitos como el procesamiento de documentos (PPTX, PDF, DOCX), el análisis de datos y la generación de código; los desarrolladores pueden utilizarlos directamente, personalizarlos o crear Skills completamente nuevos.
 
-Esto revela un principio importante para quienes desarrollan Agentes: **al elegir el modo de interacción del Agente, hay que alinearlo con la metodología de entrenamiento del proveedor del modelo**. Al crear un Agente con Claude, deben aprovecharse plenamente Skills y los prompts del sistema estructurados; al utilizar otros modelos, deben adoptarse las convenciones de interacción optimizadas específicamente por sus respectivos proveedores. En esencia, los patrones de uso de Agentes promovidos por las empresas de modelos fundacionales son aquellos para los que han entrenado específicamente sus modelos, lo que hace que estos ofrezcan de forma natural su mejor rendimiento dentro del mismo ecosistema.
+Esto revela un principio importante para quienes desarrollan Agentes: **al elegir el modo de interacción del Agente, hay que alinearlo con la metodología de entrenamiento del proveedor del modelo**. Los patrones de uso de Agentes promovidos por las empresas de modelos fundacionales suelen reflejar los modos para los que sus modelos fueron entrenados específicamente.
 
-### Métodos de implementación y compromisos de Skills
+[^ch2-baoyu-remove-ai-writing-flavor]: Baoyu, «Deja de usar prompts para quitar el sabor de IA; el enfoque es equivocado», 14 de febrero de 2026. https://baoyu.io/blog/2026-02-14/remove-ai-writing-flavor
 
-Una vez comprendido qué es Skills, surge una cuestión de ingeniería más concreta: ¿en qué lugar del contexto debe incluirse el contenido de un Skill? Se trata de una decisión de diseño fundamental que afecta directamente a la eficiencia de la Caché KV y al grado de cumplimiento de instrucciones por parte del modelo. En teoría existen dos soluciones sencillas, pero ambas implican costes evidentes; las implementaciones de producción (como Claude Code) adoptan una tercera solución que evita los inconvenientes de las otras dos.
+### Skills en el contexto
 
-**Método uno: inyección en el prompt del sistema (mensaje system)**. El contenido del Skill se añade directamente al system prompt. El modelo alcanza su mayor capacidad de cumplimiento de instrucciones cuando estas ocupan la posición system (porque durante el entrenamiento se utilizan muchas instrucciones en esa posición), por lo que la ejecución del Skill produce los mejores resultados. Sin embargo, existe un problema: cada vez que se carga un Skill nuevo, cambia el contenido del mensaje system, lo que invalida el prefijo de la Caché KV. Si el Agente cambia de Skill con frecuencia (por ejemplo, si una tarea requiere primero un Skill de búsqueda y después un Skill de documentos), la caché se invalida repetidamente y aumentan de forma significativa tanto la latencia como el coste.
+Al evaluar el coste contextual de Skills, hay que separar el catálogo de metadatos de las instrucciones completas:
 
-**Método dos: lectura como archivo ordinario, cuyo contenido aparece en medio del contexto**. El Agente lee el archivo del Skill mediante una herramienta genérica de lectura de archivos, y su contenido aparece como tool result en el historial de la conversación—es decir, en una posición intermedia del contexto. Este método no afecta en absoluto a la Caché KV (el system prompt no cambia), pero plantea requisitos más exigentes para la capacidad de **cumplimiento de instrucciones (instruction following)** del modelo: el modelo debe identificar con precisión las instrucciones del Skill en medio de un contexto largo y obedecerlas, en lugar de tratarlas como una salida ordinaria de una herramienta que solo debe «consultar». En la práctica, el grado de compatibilidad con este patrón varía enormemente entre modelos—Claude ofrece el comportamiento más fiable porque durante su entrenamiento se utilizaron numerosos datos de cumplimiento de instrucciones en posiciones intermedias; otros modelos, en cambio, suelen mostrar un cumplimiento deficiente de instrucciones inyectadas en medio del contexto.
+- **Principio del estándar**: el mecanismo define la secuencia de carga, no los roles de mensaje. El catálogo debe poder descubrirse antes que el cuerpo, y el cuerpo se carga bajo demanda una vez seleccionado el Skill. Los roles, envoltorios y la reconstrucción del catálogo en cada turno son decisiones del Agent Harness.
+- **Claude Code, conceptualmente**: expone un catálogo pequeño como contexto del runtime y añade las instrucciones completas en el punto de invocación del Skill. «Prompt del sistema» puede describir la capa lógica de instrucciones estables, pero no implica que todo cliente use el rol API `system`.
+- **Codex, conceptualmente**: durante la construcción del contexto de cada turno vuelve a representar el catálogo de Skills en contexto `developer`; el Skill seleccionado explícitamente se inyecta como contexto `user` marcado con `<skill>`. Skills de otras fuentes pueden leerse bajo demanda mediante herramientas.[^ch2-codex-skills]
 
-**Método tres (implementación de producción): proporcionar los metadatos como contexto dinámico y cargar el contenido completo bajo demanda mediante una herramienta dedicada**. La idea central de Claude Code consiste en separar el «enrutamiento» de la «ejecución» de los Skills: primero, el modelo recibe los metadatos de los Skills disponibles para determinar si la tarea actual requiere alguno de ellos; solo después de seleccionar un Skill se carga el archivo `SKILL.md` completo. Este diseño equilibra el coste de contexto, la reutilización de Prompt Cache y la capacidad de cumplimiento de instrucciones.
-
-- **Lista de metadatos**—los campos `name` + `description` de todos los Skills instalados (que normalmente solo suman unos cientos de tokens) se proporcionan de antemano al modelo para que pueda determinar qué Skills guardan relación con la tarea actual. Es importante señalar que **el rol de mensaje concreto con el que estos metadatos se inyectan en el contexto es un detalle de implementación del Agent Harness de Claude Code, no un requisito fijo del mecanismo Agent Skills**. En algunas versiones históricas de Claude Code, este tipo de contexto dinámico se presentó en bloques de contenido con rol user envueltos en `<system-reminder>`; las rutas de implementación más recientes que admiten mensajes system en mitad de una conversación también pueden utilizar un bloque de contexto con rol system añadido. Independientemente de la representación elegida, todas persiguen el mismo objetivo: permitir que el modelo conozca los Skills disponibles en ese momento sin reescribir repetidamente el prefijo estable del contexto.
-
-- **Contenido completo**—cuando el modelo determina a partir de los metadatos que un Skill es adecuado para la tarea actual, utiliza la herramienta Skill para leer bajo demanda el archivo `SKILL.md` correspondiente, cuyo contenido entra a continuación en el contexto de ejecución actual. Esto evita cargar de una sola vez las instrucciones completas de todos los Skills al inicio de la sesión y reduce la ocupación de contexto irrelevante.
-
-Por tanto, hay que distinguir dos niveles: **«los metadatos de los Skills deben ser visibles para el modelo con antelación» es un diseño de mecanismo relativamente estable, mientras que «usar el rol user, el rol system o una envoltura como `<system-reminder>`» corresponde al método de implementación de una versión concreta.** `<system-reminder>` tampoco es un formato de protocolo exclusivo de Agent Skills, sino una forma de implementación utilizada por el Agent Harness de Claude Code para inyectar contexto dinámico del sistema.
-
-Este diseño de dos capas —un catálogo pequeño siempre presente y el contenido completo cargado bajo demanda— es precisamente lo que permite que Skills combine la facilidad de descubrimiento con un bajo coste de contexto.
+Los Agent Harness evolucionan con rapidez, por lo que sus representaciones concretas pueden cambiar. El principio estable es **mantener un catálogo pequeño y descubrible, y cargar el cuerpo completo bajo demanda**. Así, Skills combina carga dinámica y un coste contextual controlado. Las dos figuras siguientes muestran el diseño desde dos perspectivas: la posición de Skills en la trayectoria y la evolución de la Caché KV.
 
 Para mostrar de forma intuitiva el efecto de este diseño, las dos figuras siguientes siguen, desde dos perspectivas distintas, la posición de Skills en la trayectoria y la evolución de la Caché KV.
 
@@ -767,7 +795,7 @@ Para mostrar de forma intuitiva el efecto de este diseño, las dos figuras sigui
 
 ![Figura 2-13 Evolución de la Caché KV a medida que crece Agent Trajectory](images/fig2-13.svg)
 
-Es necesario aclarar un malentendido habitual: «favorable para la Caché KV» no significa «sin coste»—la primera emisión de esos cientos o miles de tokens debe pagar inevitablemente una vez el coste de escritura (como se indicó antes, las escrituras de Prompt Cache incluso se facturan con un recargo). Su significado exacto es **escribir una vez y beneficiarse para siempre**: para que el modelo conozca la existencia de un skill o el contenido de un documento, es necesario introducirlo en caché al menos una vez; Claude Code consigue pagar ese coste una sola vez y no volver a repetirlo durante toda la sesión. En comparación, la alternativa—introducir la misma información en el system prompt—hace que cada actualización invalide toda la trajectory posterior y la envíe a cache_creation (del orden de decenas o cientos de miles de tokens); eso sí es verdaderamente desfavorable.
+Es necesario aclarar un malentendido habitual: «favorable para la Caché KV» no significa «sin coste». El catálogo debe procesarse la primera vez que entra en una solicitud y cargar el cuerpo de un Skill añade cómputo cuando se necesita; las solicitudes posteriores pueden reutilizar la caché mientras el prefijo establecido permanezca estable. Los distintos Harness reconstruyen el catálogo de manera diferente, pero el beneficio común es no precargar todos los cuerpos ni reescribir el contexto ya establecido cada vez que se invoca un Skill.
 
 ### Relación entre Skills y las herramientas
 
@@ -792,7 +820,7 @@ Desde la perspectiva de la gestión del contexto, el mecanismo Skills resulta mu
 
 ![Figura 2-14 Arquitectura de la barra de estado del Agente](images/fig2-14.svg)
 
-Al presentar el método tres de Skills, la sección anterior ya señaló que «el mensaje meta con rol user situado al final del contexto» es un canal genérico de inyección de metainformación—la lista de metadatos de Skills es solo uno de sus casos de uso. Esta sección desarrolla sistemáticamente dicho canal: es el mecanismo unificado con el que el framework del Agente sincroniza con el modelo diversos estados dinámicos, y recibe el nombre de **barra de estado del Agente (Agent Status Bar)**.
+La sección anterior se centró en qué capacidades pone Skills a disposición bajo demanda. Esta sección aborda un problema distinto: cómo mantener al modelo al tanto del progreso de la tarea, los cambios del entorno y los recuentos de llamadas a herramientas. El framework del Agente empaqueta esa información dinámica como estado estructurado y la inyecta en el contexto; este mecanismo se denomina **barra de estado del Agente (Agent Status Bar)**.
 
 La ingeniería de prompts analizada anteriormente resuelve el problema de «qué clase de instrucciones estáticas proporcionar al modelo». Sin embargo, durante la ejecución real, el Agente también necesita percibir dinámicamente su propio estado y el progreso de la tarea—ahí es donde interviene la barra de estado del Agente.
 
@@ -877,7 +905,7 @@ Un detalle de implementación importante es que, en la capa API, la barra de est
 
 Esta es la lista de mensajes que el framework del Agente construye realmente durante la llamada número N a la API:
 
-```
+```text
 messages: [
   { role: "system",    content: "Eres un asistente de atención al cliente..." }  ← Fijo (almacenado en la Caché KV)
   { role: "user",      content: "Ayúdame a cancelar mi plan de Xfinity" }  ← Solicitud original del usuario
@@ -904,11 +932,13 @@ Este diseño aplica al caso de la barra de estado el principio «añadir la info
 
 «Añadir no destruye la caché» solo es cierto para una única inyección. El estado cambia—en la siguiente ronda se completa un elemento TODO o se incrementa el contador de una herramienta, y el mensaje de estado queda obsoleto. Existen dos formas de actualizarlo, cada una con un coste de caché bien definido:
 
-**Implementación uno: sustituir en cada ronda**. Antes de cada llamada a la API, se elimina de la lista de mensajes el mensaje de estado de la ronda anterior y se añade al final el estado más reciente. Esto garantiza que el contexto contenga una sola copia del estado y que siempre esté actualizada. Sin embargo, eliminar el estado antiguo invalida toda la caché situada después de su posición—es el mismo mecanismo de invalidación que el «timestamp dinámico» criticado en este capítulo, con la diferencia de que el mensaje de estado se encuentra al final del contexto, de modo que la invalidación solo afecta a los mensajes de las últimas rondas y no a todo el prefijo.
+**Implementación uno: sustituir en cada ronda**. Antes de cada llamada a la API, se elimina de la lista de mensajes el mensaje de estado de la ronda anterior y se añade al final el estado más reciente. Esto garantiza que el contexto contenga una sola copia del estado y que siempre esté actualizada. Sin embargo, eliminar el estado antiguo invalida toda la caché situada después de su posición—es el mismo mecanismo de invalidación que el «timestamp dinámico» criticado en este capítulo, con la diferencia de que el mensaje de estado se encuentra al final del contexto, de modo que la invalidación solo afecta a los mensajes añadidos desde la inyección anterior del estado—normalmente una ronda—y no a todo el prefijo.
 
 **Implementación dos: adición persistente**. Una vez inyectado, el mensaje de estado permanece de forma permanente en la trayectoria, y en cada ronda solo se añade un estado nuevo al final. El `<system-reminder>` de Claude Code utiliza este método—los mensajes de estado históricos se conservan en el registro de la sesión (transcript) y nunca se eliminan ni modifican. Este método es totalmente favorable para la caché: todos los mensajes se añaden sin modificarse y el prefijo permanece estable. El coste es que los estados obsoletos se acumulan en el contexto—además de ocupar tokens, obligan al modelo a prestar atención al «estado más reciente» e ignorar los anteriores.
 
-La regla práctica para decidir es la siguiente: **cuando el estado cambia con frecuencia y la trayectoria es larga, debe elegirse la implementación dos**—las invalidaciones de caché provocadas por la sustitución en cada ronda se acumulan repetidamente a lo largo de una trayectoria extensa, con un coste muy superior al de los tokens ocupados por los estados obsoletos; **cuando la trayectoria es corta o cada mensaje de estado es grande** (por ejemplo, una lista TODO completa acompañada de una instantánea del entorno), **debe elegirse la implementación uno**—la invalidación de la caché de las últimas rondas ya es barata y, a cambio, se obtiene un contexto limpio y sin ambigüedades.
+La decisión depende de la longitud de la trayectoria, el tamaño del estado, la longitud del sufijo añadido entre actualizaciones y el número previsto de actualizaciones. **Elija la implementación dos cuando el estado sea pequeño, se generen muchos mensajes entre actualizaciones y la duración de la sesión esté acotada**—conservar los estados anteriores suele ser más barato que recalcular repetidamente un sufijo largo. **Elija la implementación uno cuando el estado sea grande, las actualizaciones sean frecuentes o la trayectoria sea larga**—por lo general, solo invalida el sufijo corto posterior a la inyección anterior y evita que se acumulen estados obsoletos.
+
+Un modelo aproximado permite estimar el punto de equilibrio. Sea $S$ el número de tokens de cada estado, $R$ el número de tokens añadidos entre actualizaciones, $N$ el número previsto de actualizaciones y $\alpha$ el coste de la entrada en caché respecto a la entrada normal. Omitiendo los costes comunes a ambos métodos, $C_{\text{sustituir}} \approx (N-1)(1-\alpha)R$ y $C_{\text{añadir}} \approx \alpha S N(N-1)/2$. Por tanto, conviene la implementación dos cuando $\alpha SN/2 < (1-\alpha)R$; en caso contrario, conviene la implementación uno. Esta estimación no incluye la ocupación del contexto ni la ambigüedad causada por estados obsoletos, por lo que la decisión final también debe considerar las tarifas de caché del proveedor y la tasa de aciertos medida.
 
 > **Experimento 2-8 ★★: varias técnicas útiles para la barra de estado del Agente**
 >

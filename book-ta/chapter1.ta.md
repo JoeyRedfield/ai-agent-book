@@ -82,7 +82,7 @@
 
 வானிலை வினவல் காட்சியை உதாரணமாக எடுத்துக் கொண்டால், API மட்டத்தில் நான்கு-படி செயல்முறையின் எளிமைப்படுத்தப்பட்ட பிரதிநிதித்துவம் பின்வருமாறு:
 
-```
+```text
 Step 1: Declare tools                  Step 2: Model decides to call
 tools: [{                             assistant: {
   name: "get_weather",                  tool_calls: [{
@@ -167,9 +167,30 @@ LLM ஏஜெண்டுகளின் ஒரு தனித்துவம�
 
 ![படம் 1-4: ஏஜெண்ட் பாதை—பல நாணய ஒருங்கிணைப்பு பணிக்கான ReAct லூப்](images/fig1-4.svg)
 
+பின்வரும் Python பாணி வரைவு விளக்கத்திற்கான pseudocode மட்டுமே; இயக்கக்கூடிய SDK குறியீடு அல்ல. `python` marker தொடரியல் முன்னிலைப்படுத்தலுக்காக மட்டுமே பயன்படுத்தப்படுகிறது.
+
+**ReAct கட்டுப்பாட்டு சுழற்சி:**
+
+```python
+trajectory = [user_request]
+
+repeat:
+    context = stable_prefix + trajectory
+    decision = Model(context)
+    trajectory.append(decision)
+
+    if decision has no tool call:
+        return decision.answer
+
+    for call in decision.tool_calls:       # independent calls may run in parallel
+        validated_call = Harness.validate(call)
+        observation = Environment.execute(validated_call)
+        trajectory.append(observation)
+```
+
 சூடோகுறியீடு மூலம் ஒரு ஏஜெண்ட் பாதையின் கட்டமைப்பைப் புரிந்துகொள்வோம்:
 
-```
+```text
 trajectory = [
   {role: "user", content: "Based on the company's quarterly revenue: Q1 2.5M USD, Q2 2.1M EUR, Q3 1.8M GBP, Q4 380M JPY, calculate the company's total annual revenue and average quarterly revenue"},
   
@@ -252,6 +273,21 @@ trajectory = [
 > **ஏஜெண்ட் = மாதிரி + Harness**
 >
 > **Harness = சூழல் மேலாண்மை + கருவி இடைமுகங்கள் + கட்டுப்பாடு + சரிபார்ப்பு + திருத்தம்**
+
+**Harness உற்பத்தி எல்லை:**
+
+```python
+decision = Model(Harness.build_context(state, trajectory))
+allowed_action = Harness.constrain(decision)
+observation = Environment.apply(allowed_action)
+evidence = Harness.verify(allowed_action, observation)
+
+if evidence passes:
+    trajectory.append(observation)
+else:
+    trajectory.append(Harness.correct(evidence))
+```
+
 >
 > **ஏஜெண்ட் ↔ Environment**
 
